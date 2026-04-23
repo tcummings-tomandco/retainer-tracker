@@ -1,0 +1,1477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Retainer Tracker</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #f0f4f8; --surface: #ffffff; --border: #e2e8f0;
+    --text:    #1e293b; --muted:   #64748b;
+    --green:   #10b981; --amber:   #f59e0b; --red: #ef4444;
+    --blue:    #3b82f6; --orange:  #f97316; --radius: 10px;
+  }
+  body { font-family: system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+  .header { background:var(--surface); border-bottom:1px solid var(--border); padding:14px 24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; position:sticky; top:0; z-index:100; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .logo { display:flex; align-items:center; gap:10px; }
+  .logo-icon { width:32px; height:32px; background:var(--blue); border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; }
+  .logo-text { font-weight:700; font-size:15px; }
+  .logo-sub  { font-size:11px; color:var(--muted); }
+  .controls  { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+
+  select, button { padding:7px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:12px; cursor:pointer; }
+  button:hover { background:#e2e8f0; }
+  .btn-toggle { display:flex; border-radius:6px; overflow:hidden; border:1px solid var(--border); }
+  .btn-toggle button { border:none; border-radius:0; padding:7px 18px; }
+  .btn-toggle button.active { background:var(--blue); color:#fff; font-weight:600; }
+  .btn-toggle button.active.trade { background:#d97706; }
+
+  .state-msg { display:flex; flex-direction:column; align-items:center; justify-content:center; height:60vh; gap:12px; color:var(--muted); }
+  .spinner { width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:spin 0.8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .kpi-strip { display:flex; border-bottom:1px solid var(--border); overflow-x:auto; }
+  .kpi { padding:14px 24px; border-right:1px solid var(--border); min-width:130px; }
+  .kpi-label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:4px; }
+  .kpi-value { font-size:22px; font-weight:800; line-height:1; }
+  .kpi-sub   { font-size:11px; color:var(--muted); margin-top:3px; }
+
+  .year-section { padding:24px; }
+  .section-title { font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:16px; }
+  .year-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:8px; }
+
+  .month-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 12px; cursor:pointer; transition:all .15s; position:relative; overflow:hidden; min-height:120px; }
+  .month-card:hover { border-color:var(--blue); transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.08); }
+  .month-card.selected { border-color:var(--blue); box-shadow:0 0 0 2px #3b82f640; }
+  .month-card.current  { border-color:var(--amber); }
+  .month-card::before  { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+  .month-card.pos::before { background:var(--green); }
+  .month-card.warn::before{ background:var(--amber); }
+  .month-card.neg::before { background:var(--red); }
+
+  .month-label   { font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.5px; margin-bottom:6px; }
+  .month-balance { font-size:20px; font-weight:800; line-height:1; margin-bottom:4px; }
+  .month-balance.pos  { color:var(--green); }
+  .month-balance.warn { color:var(--amber); }
+  .month-balance.neg  { color:var(--red); }
+  .month-meta    { font-size:10px; color:var(--muted); }
+  .month-badge   { font-size:9px; font-weight:700; padding:2px 5px; border-radius:3px; text-transform:uppercase; }
+  .badge-now      { background:#fef3c7; color:#b45309; }
+  .badge-forecast { background:#dbeafe; color:#2563eb; }
+  .month-bar-wrap { margin-top:8px; height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .month-bar-fill { height:100%; border-radius:2px; }
+
+  .trend-wrap { padding:0 24px 20px; }
+  .trend-inner { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; }
+  .trend-title { font-size:11px; color:var(--muted); margin-bottom:12px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+
+  .drilldown { margin:0 24px 24px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+  .dd-header { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .dd-title  { font-size:14px; font-weight:700; }
+  .dd-close  { background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:0 4px; }
+  .dd-close:hover { color:var(--text); background:none; }
+  .dd-loading { padding:32px; text-align:center; color:var(--muted); display:flex; align-items:center; justify-content:center; gap:10px; }
+
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { padding:8px 16px; text-align:left; color:var(--muted); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.5px; border-bottom:1px solid var(--border); background:#f8fafc; }
+  td { padding:10px 16px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:#f1f5f9; }
+
+  .pill { display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; border:1px solid; }
+  .p-credit    { background:#dbeafe; color:#1d4ed8;  border-color:#93c5fd; }
+  .p-am        { background:#fae8ff; color:#a21caf;  border-color:#e879f9; }
+  .p-carried   { background:#ede9fe; color:#6d28d9;  border-color:#a78bfa; }
+  .p-recurring { background:#d1fae5; color:#047857;  border-color:#6ee7b7; }
+  .p-support   { background:#ffedd5; color:#c2410c;  border-color:#fdba74; }
+  .p-payg      { background:#f1f5f9; color:#475569;  border-color:#cbd5e1; }
+  .p-project   { background:#e0e7ff; color:#4338ca;  border-color:#a5b4fc; }
+  .p-forecast  { background:#dbeafe; color:#2563eb;  border-color:#93c5fd; font-style:italic; }
+  .p-projected { background:#ede9fe; color:#6d28d9;  border-color:#a78bfa; }
+
+  .g { color:var(--green); font-weight:700; }
+  .a { color:var(--amber); font-weight:700; }
+  .r { color:var(--red);   font-weight:700; }
+  .o { color:var(--orange);font-weight:700; }
+
+  .tpl-bar { padding:12px 24px; background:#f8fafc; border-top:1px solid var(--border); display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+  .tpl-item { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:5px; }
+  .tpl-dot  { width:6px; height:6px; border-radius:50%; background:var(--green); flex-shrink:0; }
+
+  /* ── Pipeline tab ──────────────────────────────────────── */
+  .view-tabs { display:flex; border-radius:6px; overflow:hidden; border:1px solid var(--border); }
+  .view-tab  { padding:7px 18px; background:var(--surface); border:none; color:var(--muted); cursor:pointer; font-size:12px; transition:background .15s; }
+  .view-tab:hover  { background:#e2e8f0; color:var(--text); }
+  .view-tab.active { background:var(--blue); color:#fff; font-weight:600; }
+
+  /* Kanban */
+  .kanban-section { padding:24px 24px 0; }
+  .kanban         { display:flex; gap:10px; overflow-x:auto; padding-bottom:16px; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; }
+  .kanban-col     { flex:0 0 190px; }
+  .k-header       { padding:6px 2px 10px; border-bottom:2px solid; margin-bottom:10px; }
+  .k-label        { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; }
+  .k-count        { font-size:11px; color:var(--muted); margin-top:3px; }
+  .k-tasks        { display:flex; flex-direction:column; gap:7px; }
+  .k-empty        { font-size:11px; color:#94a3b8; padding:8px 0; font-style:italic; }
+  .task-card      { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:10px 12px; transition:border-color .15s; }
+  .task-card:hover{ border-color:var(--blue); }
+  .task-card a    { color:var(--text); text-decoration:none; font-size:12px; line-height:1.4; display:block; }
+  .task-card a:hover { color:#2563eb; }
+  .task-meta      { margin-top:7px; display:flex; gap:5px; align-items:center; flex-wrap:wrap; }
+  .kanban-divider { flex:0 0 1px; background:var(--border); align-self:stretch; margin:0 2px; opacity:.5; }
+
+  /* Priority badges */
+  .pri         { display:inline-block; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
+  .pri-urgent  { background:#fef2f2; color:#dc2626; border:1px solid #fca5a5; }
+  .pri-high    { background:#fff7ed; color:#ea580c; border:1px solid #fdba74; }
+  .pri-low     { background:#e0e7ff; color:#4338ca; border:1px solid #a5b4fc; }
+  .hrs-pill    { display:inline-block; padding:1px 6px; border-radius:3px; font-size:9px; background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; }
+  .date-pill   { display:inline-block; padding:1px 6px; border-radius:3px; font-size:9px; background:#f1f5f9; color:var(--muted); border:1px solid var(--border); }
+
+  /* Timeline */
+  .tl-section  { padding:24px; }
+  .tl-grid     { display:grid; gap:8px; }
+  .tl-col      { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+  .tl-col.tl-unscheduled { border-style:dashed; }
+  .tl-col-hdr  { padding:8px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .tl-month-lbl{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+  .tl-month-lbl.tl-now { color:var(--amber); }
+  .tl-month-hrs{ font-size:10px; font-weight:700; color:#2563eb; }
+  .tl-tasks    { padding:8px 10px; display:flex; flex-direction:column; gap:5px; min-height:36px; }
+  .tl-empty    { font-size:11px; color:#94a3b8; font-style:italic; padding:4px 2px; }
+  .tl-chip     { font-size:11px; padding:5px 8px; border-radius:6px; background:#f1f5f9; border-left:3px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  .tl-chip a   { color:var(--text); text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0; }
+  .tl-chip a:hover { color:#2563eb; }
+  .tl-chip-right { display:flex; gap:4px; align-items:center; flex-shrink:0; }
+
+  /* ── Roadmap / Gantt ───────────────────────────────────── */
+  .roadmap-wrap  { padding:24px; }
+  .gantt-outer   { overflow-x:auto; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; border:1px solid var(--border); border-radius:var(--radius); }
+  .gantt-table   { width:100%; border-collapse:collapse; table-layout:fixed; }
+  .gantt-table col.gantt-name-col { width:230px; }
+  .gantt-table col.gantt-mo-col   { min-width:72px; }
+
+  .gantt-th-name  { padding:9px 14px; background:#f8fafc; border-bottom:1px solid var(--border); font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; text-align:left; position:sticky; left:0; z-index:3; }
+  .gantt-th-month { padding:9px 8px; background:#f8fafc; border-bottom:1px solid var(--border); border-left:1px solid var(--border); font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; text-align:center; white-space:nowrap; }
+  .gantt-th-month.gantt-th-now { color:var(--amber); border-left-color:#f59e0b50; }
+
+  .gantt-group-row td { padding:7px 14px; background:#f8fafc; border-top:1px solid var(--border); border-bottom:1px solid var(--border); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; }
+
+  .gantt-name-cell { background:var(--surface); border-bottom:1px solid var(--border); padding:10px 14px; position:sticky; left:0; z-index:1; vertical-align:top; }
+  .gantt-name-inner{ display:flex; align-items:flex-start; gap:8px; }
+  .gantt-dot       { width:8px; height:8px; border-radius:50%; flex-shrink:0; margin-top:4px; }
+  .gantt-name-text { flex:1; min-width:0; }
+  .gantt-name-text a { color:var(--text); text-decoration:none; font-size:12px; line-height:1.4; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .gantt-name-text a:hover { color:#2563eb; }
+  .gantt-hrs       { margin-top:5px; }
+  .gantt-status    { display:inline-block; padding:1px 6px; border-radius:3px; font-size:9px; font-weight:600; margin-top:4px; }
+
+  .gantt-cell      { border-left:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--surface); vertical-align:middle; padding:4px 3px; }
+  .gantt-cell.gantt-now-col { background:#fffbeb; border-left-color:#fcd34d; }
+  .gantt-bar-cell  { padding:4px 3px; vertical-align:middle; }
+  .gantt-bar       { border-radius:5px; height:26px; display:flex; align-items:center; justify-content:center; padding:0 6px; font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; min-width:4px; }
+
+  /* Projected hours inputs */
+  .proj-row    { display:flex; align-items:center; gap:5px; margin-top:4px; flex-wrap:wrap; }
+  .proj-label  { font-size:9px; color:var(--muted); white-space:nowrap; }
+  .proj-input  { width:58px; padding:3px 6px; border-radius:4px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:11px; -moz-appearance:textfield; }
+  .proj-input::-webkit-outer-spin-button,.proj-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  .proj-input:focus { outline:none; border-color:var(--blue); }
+  .proj-select { padding:3px 5px; border-radius:4px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:10px; cursor:pointer; max-width:80px; }
+  .proj-select:focus { outline:none; border-color:var(--blue); }
+
+  /* ── Overview ──────────────────────────────────────────── */
+  .overview-section { padding:24px; }
+  .overview-grid    { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:16px; }
+  .ov-card          { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; cursor:pointer; transition:all .15s; }
+  .ov-card:hover    { border-color:var(--blue); box-shadow:0 4px 16px rgba(0,0,0,.06); transform:translateY(-1px); }
+  .ov-card-header   { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .ov-client-name   { font-size:15px; font-weight:700; }
+  .ov-health        { display:inline-block; padding:3px 10px; border-radius:12px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; }
+  .ov-health-good   { background:#d1fae5; color:#047857; }
+  .ov-health-warn   { background:#fef3c7; color:#b45309; }
+  .ov-health-bad    { background:#fef2f2; color:#dc2626; }
+  .ov-metrics       { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:14px; }
+  .ov-metric        { }
+  .ov-metric-label  { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:2px; }
+  .ov-metric-value  { font-size:16px; font-weight:800; line-height:1.2; }
+  .ov-spark         { height:32px; }
+  .ov-pipeline-row  { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  .ov-pip-tag       { font-size:9px; padding:2px 7px; border-radius:3px; font-weight:600; }
+
+  /* ── Capacity vs Commitment ─────────────────────────────── */
+  .capcom-wrap    { padding:0 24px 20px; }
+  .capcom-inner   { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; }
+  .capcom-title   { font-size:11px; color:var(--muted); margin-bottom:14px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+  .capcom-grid    { display:grid; grid-template-columns:repeat(auto-fit, minmax(70px, 1fr)); gap:8px; align-items:end; }
+  .capcom-col     { text-align:center; }
+  .capcom-label   { font-size:9px; color:var(--muted); margin-bottom:4px; font-weight:600; }
+  .capcom-bar-wrap{ position:relative; height:120px; display:flex; align-items:flex-end; justify-content:center; gap:3px; }
+  .capcom-bar     { width:18px; border-radius:3px 3px 0 0; min-height:2px; position:relative; }
+  .capcom-bar:hover .capcom-tip { display:block; }
+  .capcom-tip     { display:none; position:absolute; bottom:100%; left:50%; transform:translateX(-50%); background:var(--text); color:var(--surface); font-size:9px; padding:2px 6px; border-radius:3px; white-space:nowrap; margin-bottom:4px; font-weight:600; }
+  .capcom-net     { font-size:10px; font-weight:700; margin-top:4px; }
+  .capcom-legend  { display:flex; gap:14px; font-size:10px; color:var(--muted); margin-top:12px; justify-content:flex-end; }
+  .capcom-legend span::before { content:''; display:inline-block; width:10px; height:10px; border-radius:2px; vertical-align:middle; margin-right:4px; }
+  .capcom-leg-credit::before  { background:#3b82f6; }
+  .capcom-leg-recur::before   { background:#f97316; }
+  .capcom-leg-proj::before    { background:#8b5cf6; }
+
+  /* Capacity bar */
+  .cap-section { padding:0 24px 24px; }
+  .cap-grid    { display:grid; gap:8px; }
+  .cap-col     { }
+  .cap-lbl     { font-size:9px; color:var(--muted); margin-bottom:3px; text-align:center; }
+  .cap-track   { height:5px; background:var(--border); border-radius:3px; overflow:hidden; position:relative; }
+  .cap-fill    { height:100%; border-radius:3px; position:absolute; top:0; left:0; transition:width .3s; }
+  .cap-over    { background:var(--red); }
+  .cap-warn    { background:var(--amber); }
+  .cap-ok      { background:var(--green); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <div class="logo-icon">R</div>
+    <div>
+      <div class="logo-text">Retainer Tracker</div>
+      <div class="logo-sub" id="subTitle">Loading…</div>
+    </div>
+  </div>
+  <div class="controls">
+    <select id="clientSel" onchange="onClientChange()"><option>Loading…</option></select>
+    <div class="btn-toggle" id="budgetToggle" style="display:none">
+      <button id="btnRetail" class="active" onclick="setBudget('Retail')">Retail · 150h</button>
+      <button id="btnTrade"  onclick="setBudget('Trade')">Trade · 50h</button>
+    </div>
+    <select id="yearSel" onchange="onYearChange()">
+      <option value="Jan 25">2025</option>
+      <option value="Jan 26" selected>2026</option>
+    </select>
+    <div class="view-tabs">
+      <button id="tabOverview"  class="view-tab"         onclick="switchView('overview')">Overview</button>
+      <button id="tabBalance"   class="view-tab active"  onclick="switchView('balance')">Balance</button>
+      <button id="tabPipeline"  class="view-tab"         onclick="switchView('pipeline')">Pipeline</button>
+      <button id="tabRoadmap"   class="view-tab"         onclick="switchView('roadmap')">Roadmap</button>
+    </div>
+    <button onclick="forceRefresh()" id="refreshBtn">↻ Refresh</button>
+    <span id="cacheLabel" style="font-size:11px;color:#475569"></span>
+  </div>
+</div>
+
+<div class="kpi-strip" id="kpiStrip"></div>
+<div id="main"><div class="state-msg"><div class="spinner"></div><div>Loading clients…</div></div></div>
+<div class="tpl-bar" id="tplBar" style="display:none"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────
+var clients = [], selIdx = 0, budget = null, yearStart = 'Jan 26';
+var yearData = null, activeMonth = null;
+var pipelineData = null, activeView = 'balance';
+
+// ── Pipeline constants ─────────────────────────────────────────
+var PIPELINE_ORDER = [
+  'in scoping','client quote feedback','quote given',
+  'in discovery','in refinement','scheduled',
+  'in progress','in client approval','in live approval',
+];
+var STATUS_META = {
+  'in scoping':            { label:'In Scoping',      color:'#8b5cf6', group:'pre'    },
+  'client quote feedback': { label:'Quote Feedback',   color:'#a78bfa', group:'pre'    },
+  'quote given':           { label:'Quote Given',      color:'#7c3aed', group:'pre'    },
+  'in discovery':          { label:'In Discovery',     color:'#6366f1', group:'pre'    },
+  'in refinement':         { label:'In Refinement',    color:'#4f46e5', group:'active' },
+  'scheduled':             { label:'Scheduled',        color:'#0ea5e9', group:'active' },
+  'in progress':           { label:'In Progress',      color:'#10b981', group:'active' },
+  'in client approval':    { label:'Client Approval',  color:'#f59e0b', group:'review' },
+  'in live approval':      { label:'Live Approval',    color:'#ef4444', group:'review' },
+};
+var PRI_COLOR = { urgent:'#ef4444', high:'#f97316', normal:null, low:'#818cf8' };
+var MONTHS_LIST = [
+  'Jan 25','Feb 25','Mar 25','Apr 25','May 25','Jun 25',
+  'Jul 25','Aug 25','Sep 25','Oct 25','Nov 25','Dec 25',
+  'Jan 26','Feb 26','Mar 26','Apr 26','May 26','Jun 26',
+  'Jul 26','Aug 26','Sep 26','Oct 26','Nov 26','Dec 26',
+];
+
+// ── API wrapper → same interface as google.script.run ──────────
+var API_MAP = {
+  getClients:               function()               { return ['GET',  '/api/clients',          null]; },
+  getOverview:              function(ys)             { return ['GET',  '/api/overview',         { yearStart:ys }]; },
+  getYearView:              function(ci, b, ys)      { return ['GET',  '/api/year',             { client:ci, budget:b, yearStart:ys }]; },
+  getMonthData:             function(ci, b, m)       { return ['GET',  '/api/month',            { client:ci, budget:b, month:m }]; },
+  getPipelineData:          function(ci)             { return ['GET',  '/api/pipeline',         { client:ci }]; },
+  getProjections:           function(ci)             { return ['GET',  '/api/projections',      { client:ci }]; },
+  saveProjection:           function(ci,tid,tn,ph,tm){ return ['POST', '/api/projections',      { clientIndex:ci, taskId:tid, taskName:tn, projectedHours:ph, targetMonth:tm }]; },
+  forceRefreshPipelineData: function(ci)             { return ['POST', '/api/refresh/pipeline', { client:ci }]; },
+  forceRefreshYearView:     function(ci, b, ys)      { return ['POST', '/api/refresh/year',     { client:ci, budget:b, yearStart:ys }]; },
+};
+
+function run(fn) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function(resolve, reject) {
+    var mapping = API_MAP[fn];
+    if (!mapping) { reject(new Error('Unknown function: ' + fn)); return; }
+    var spec   = mapping.apply(null, args);
+    var method = spec[0], path = spec[1], params = spec[2];
+    var url = path, opts = {};
+    if (method === 'GET' && params) {
+      var qs = Object.keys(params)
+        .filter(function(k){ return params[k] != null; })
+        .map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); })
+        .join('&');
+      if (qs) url += '?' + qs;
+    } else if (method === 'POST') {
+      opts.method  = 'POST';
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body    = JSON.stringify(params || {});
+    }
+    fetch(url, opts)
+      .then(function(r){ return r.json(); })
+      .then(function(result) {
+        if (result && result.ok === false) reject(new Error(result.error || 'Server error'));
+        else resolve(result);
+      })
+      .catch(function(e){ reject(e); });
+  });
+}
+
+// ── Init ───────────────────────────────────────────────────────
+run('getClients').then(function(data) {
+  clients = data;
+  var sel = document.getElementById('clientSel');
+  sel.innerHTML = clients.map(function(c, i) {
+    return '<option value="' + i + '">' + c.name + '</option>';
+  }).join('');
+  onClientChange();
+}).catch(function(e) { showError('Failed to load clients: ' + e.message); });
+
+function onClientChange() {
+  selIdx = parseInt(document.getElementById('clientSel').value, 10);
+  var c  = clients[selIdx];
+  document.getElementById('subTitle').textContent = c ? c.name : '';
+  var toggle = document.getElementById('budgetToggle');
+  if (c && c.hasRetainerBudget && activeView === 'balance') {
+    toggle.style.display = 'flex';
+    if (!budget) budget = 'Retail';
+  } else {
+    toggle.style.display = 'none';
+    if (!c || !c.hasRetainerBudget) budget = null;
+  }
+  activeMonth  = null;
+  yearData     = null;
+  pipelineData = null;
+  if (activeView === 'pipeline') loadPipeline();
+  else if (activeView === 'roadmap') loadRoadmap();
+  else loadYear();
+}
+
+function switchView(v) {
+  activeView = v;
+  document.getElementById('tabOverview').className  = 'view-tab' + (v === 'overview'  ? ' active' : '');
+  document.getElementById('tabBalance').className   = 'view-tab' + (v === 'balance'   ? ' active' : '');
+  document.getElementById('tabPipeline').className  = 'view-tab' + (v === 'pipeline'  ? ' active' : '');
+  document.getElementById('tabRoadmap').className   = 'view-tab' + (v === 'roadmap'   ? ' active' : '');
+  var toggle = document.getElementById('budgetToggle');
+  if (toggle) toggle.style.display = (v === 'balance' && clients[selIdx] && clients[selIdx].hasRetainerBudget) ? 'flex' : 'none';
+  // Hide client-specific controls on overview
+  var clientControls = ['clientSel', 'yearSel', 'budgetToggle'];
+  clientControls.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = (v === 'overview') ? 'none' : '';
+  });
+  document.getElementById('subTitle').textContent = (v === 'overview') ? 'All Clients' : (clients[selIdx] ? clients[selIdx].name : '');
+  if (v === 'overview') {
+    loadOverview();
+  } else if (v === 'balance') {
+    if (yearData) { renderYear(yearData); if (activeMonth) loadDrilldown(activeMonth); }
+    else loadYear();
+  } else if (v === 'pipeline') {
+    if (pipelineData) renderPipeline(pipelineData);
+    else loadPipeline();
+  } else {
+    loadRoadmap();
+  }
+}
+
+function setBudget(b) {
+  budget = b;
+  document.getElementById('btnRetail').className = b === 'Retail' ? 'active' : '';
+  document.getElementById('btnTrade').className  = b === 'Trade'  ? 'active trade' : '';
+  activeMonth = null;
+  loadYear();
+}
+
+function onYearChange() {
+  yearStart   = document.getElementById('yearSel').value;
+  activeMonth = null;
+  loadYear();
+}
+
+// Pre-warm drilldown cache for all months sequentially in background
+// User never sees this — it just means every month click is instant
+var prewarmQueue = [], prewarmRunning = false;
+function prewarmMonths(months) {
+  prewarmQueue = months.map(function(m){ return m.month; });
+  if (!prewarmRunning) prewarmNext();
+}
+function prewarmNext() {
+  if (!prewarmQueue.length) { prewarmRunning = false; return; }
+  prewarmRunning = true;
+  var month = prewarmQueue.shift();
+  // Only call if not already the active drilldown (which loads separately)
+  if (month !== activeMonth) {
+    run('getMonthData', selIdx, budget, month).then(function() {
+      prewarmNext(); // chain sequentially to avoid hammering the server
+    }).catch(function() {
+      prewarmNext(); // continue even if one fails
+    });
+  } else {
+    prewarmNext();
+  }
+}
+
+// ── Load year ─────────────────────────────────────────────────
+function loadYear() {
+  showLoading('Building year view…');
+  run('getYearView', selIdx, budget, yearStart).then(function(data) {
+    yearData = data;
+    renderYear(data);
+    loadDrilldown(activeMonth);
+  }).catch(function(e) { showError(e.message); });
+}
+
+// ── Render year ───────────────────────────────────────────────
+function renderYear(d) {
+  var months  = d.months;
+  var credit  = d.monthlyCredit;
+  var past    = months.filter(function(m){ return !m.isFuture && !m.isCurrent; });
+  var current = months.find(function(m){ return m.isCurrent; });
+  var last    = months.slice().reverse().find(function(m){ return m.closingBalance != null; });
+  var billed  = past.reduce(function(s,m){ return s+(m.hoursOut||0); }, 0);
+  var avgBurn = past.length ? Math.round(billed/past.length) : 0;
+
+  // KPIs
+  document.getElementById('kpiStrip').innerHTML = [
+    { label:'Opening Balance',   val: d.openingBalance != null ? fmt(d.openingBalance) : '—', sub:'carried in', col: bc(d.openingBalance) },
+    { label:'Monthly Credit',    val: credit+'h',               sub: budget||'Retainer',    col: '#3b82f6' },
+    { label:'Carried In',        val: current ? (current.carriedIn != null ? fmt(current.carriedIn) : '—') : '—', sub:'rollover this month', col: '#7c3aed' },
+    { label:'Total Billed',      val: billed+'h',               sub: past.length+' months',  col: '#f97316' },
+    { label:'Current Balance',   val: current ? fmt(current.closingBalance) : '—', sub:'this month', col: bc(current&&current.closingBalance) },
+    { label:'Year-End Forecast', val: last ? fmt(last.closingBalance) : '—', sub:'projected', col: bc(last&&last.closingBalance) },
+    { label:'Avg Monthly Burn',  val: past.length ? avgBurn+'h' : '—', sub:'ex. credit',   col: '#64748b' },
+  ].map(function(k){
+    return '<div class="kpi"><div class="kpi-label">'+k.label+'</div>'
+      +'<div class="kpi-value" style="color:'+k.col+'">'+k.val+'</div>'
+      +'<div class="kpi-sub">'+k.sub+'</div></div>';
+  }).join('');
+
+  var maxAbs = Math.max.apply(null, months.map(function(m){ return Math.abs(m.closingBalance||0); }).concat([1]));
+
+  // Month cards
+  var cards = months.map(function(m) {
+    var cls   = balCls(m.closingBalance);
+    var pct   = m.closingBalance != null ? Math.min(Math.abs(m.closingBalance)/maxAbs*100,100) : 0;
+    var isSel = activeMonth === m.month;
+    return '<div class="month-card '+cls+(m.isCurrent?' current':'')+(m.isFuture?' ':'')+(isSel?' selected':'')+'" onclick="selectMonth(\''+m.month+'\')">'
+      +'<div class="month-label">'+m.month+'</div>'
+      +'<div class="month-balance '+cls+'">'+(m.closingBalance!=null?fmt(m.closingBalance):'—')+'</div>'
+      +'<div class="month-meta">'
+      +(m.carriedIn ? '<span style="color:#7c3aed">↳'+m.carriedIn+'h</span> ' : '')
+      +(m.hoursOut?'−'+m.hoursOut+'h'+(m.isFuture&&m.projectedHours?' <span style="color:#7c3aed;font-size:9px">('+m.projectedHours+'h proj.)</span>':''):'&nbsp;')
+      +'</div>'
+      +'<div class="month-bar-wrap"><div class="month-bar-fill" style="width:'+pct+'%;background:'+bcRaw(m.closingBalance)+'"></div></div>'
+      +(m.isCurrent ? '<div style="margin-top:6px"><span class="month-badge badge-now">Now</span></div>' : '')
+      +(m.isFuture  ? '<div style="margin-top:6px"><span class="month-badge badge-forecast">Forecast</span></div>' : '')
+      +'</div>';
+  }).join('');
+
+  // Trend SVG
+  var svg = buildSvg(months);
+
+  // Auto-select current month if none selected
+  if (!activeMonth) {
+    var curMonth = months.find(function(m){ return m.isCurrent; });
+    if (curMonth) activeMonth = curMonth.month;
+    else if (months.length) activeMonth = months[months.length - 1].month;
+  }
+
+  // Drilldown — always visible
+  var dd = '<div class="drilldown" id="dd"><div class="dd-header"><div class="dd-title">'+activeMonth+'</div>'
+    +'<div style="display:flex;gap:6px">'
+    +months.map(function(m){
+      return '<button data-month-btn="'+m.month+'" style="padding:3px 8px;font-size:10px;border-radius:4px;border:1px solid var(--border);background:'
+        +(m.month===activeMonth?'var(--blue);color:#fff':'var(--surface);color:var(--muted)')
+        +';cursor:pointer" onclick="selectMonth(\''+m.month+'\')">'+m.month.split(' ')[0]+'</button>';
+    }).join('')
+    +'</div></div>'
+    +'<div id="ddBody"><div class="dd-loading"><div class="spinner"></div> Loading…</div></div></div>';
+
+  document.getElementById('main').innerHTML =
+    '<div class="year-section">'
+    +'<div class="section-title">Hours Balance · '+(yearStart.slice(-2)==='25'?'2025':'2026')+(budget?' · '+budget:'')+'</div>'
+    +'<div class="year-grid">'+cards+'</div></div>'
+    +dd
+    +'<div class="trend-wrap"><div class="trend-inner">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+    +'<div class="trend-title" style="margin-bottom:0">Balance &amp; Burn Rate</div>'
+    +'<div style="display:flex;gap:14px;font-size:10px;color:var(--muted)">'
+    +'<span><span style="display:inline-block;width:12px;height:3px;background:#3b82f6;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Balance</span>'
+    +'<span><span style="display:inline-block;width:12px;height:3px;background:#f97316;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Burn Rate</span>'
+    +'<span><span style="display:inline-block;width:12px;height:3px;background:#10b981;border-radius:2px;vertical-align:middle;margin-right:4px;opacity:.4"></span>Credit</span>'
+    +'</div></div>'
+    +svg+'</div></div>'
+    +buildCapComSection(months, d.monthlyCredit || 0);
+
+  // Templates legend
+  var recurring = (d.templates||[]).filter(function(t){ return t.tag==='retainer recurring'&&t.quoteHours; });
+  if (recurring.length) {
+    document.getElementById('tplBar').style.display = 'flex';
+    document.getElementById('tplBar').innerHTML =
+      '<span style="font-size:11px;color:var(--muted);font-weight:600">Monthly recurring:</span>'
+      +recurring.map(function(t){
+        return '<div class="tpl-item"><div class="tpl-dot"></div>'+esc(t.name)+' ('+t.quoteHours+'h)</div>';
+      }).join('');
+  } else {
+    document.getElementById('tplBar').style.display = 'none';
+  }
+}
+
+// ── Month drilldown ───────────────────────────────────────────
+function selectMonth(month) {
+  var prev = activeMonth;
+  activeMonth = month;
+
+  // Update month card selection (no full re-render)
+  document.querySelectorAll('.month-card').forEach(function(card) {
+    var cardMonth = card.querySelector('.month-label');
+    if (!cardMonth) return;
+    if (cardMonth.textContent === month) card.classList.add('selected');
+    else card.classList.remove('selected');
+  });
+
+  // Update drilldown header buttons
+  document.querySelectorAll('[data-month-btn]').forEach(function(btn) {
+    if (btn.getAttribute('data-month-btn') === month) {
+      btn.style.background = 'var(--blue)'; btn.style.color = '#fff';
+    } else {
+      btn.style.background = 'var(--surface)'; btn.style.color = 'var(--muted)';
+    }
+  });
+
+  // Update drilldown title
+  var hdr = document.querySelector('.dd-header .dd-title');
+  if (hdr) hdr.textContent = month;
+
+  // Keep existing content visible while loading (no spinner flash)
+  loadDrilldown(month);
+}
+
+function loadDrilldown(month) {
+  run('getMonthData', selIdx, budget, month).then(function(data) {
+    renderDrilldown(data);
+  }).catch(function(e) {
+    var b = document.getElementById('ddBody');
+    if (b) b.innerHTML = '<div style="padding:16px;color:var(--red)">Error: '+esc(e.message)+'</div>';
+  });
+}
+
+function renderDrilldown(data) {
+  var el = document.getElementById('ddBody');
+  if (!el) return;
+  var tasks = data.tasks || [];
+
+  // Update header
+  var hdr = document.querySelector('.dd-header .dd-title');
+  if (hdr) hdr.textContent = data.month + (data.isFuture ? ' — Forecast' : ' — Actuals');
+
+  if (!tasks.length) {
+    el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">No tasks found for this month</div>';
+    return;
+  }
+
+  // Sort: billing list tasks first, then by tag priority
+  var tagOrder = ['retainer hours','retainer am hours','retainer carried hours','retainer recurring','additional support hours','payg hours used'];
+  tasks.sort(function(a,b) {
+    var aIsB = a.listName === 'Billing' ? 0 : 1;
+    var bIsB = b.listName === 'Billing' ? 0 : 1;
+    if (aIsB !== bIsB) return aIsB - bIsB;
+    var ai = tagOrder.indexOf(a.tag); if (ai === -1) ai = 99;
+    var bi = tagOrder.indexOf(b.tag); if (bi === -1) bi = 99;
+    return ai - bi;
+  });
+
+  // Total hours billed = only tasks with quoteHours, excluding retainer credit and carried hours
+  var totalHours = tasks.reduce(function(s,t){
+    if (t.tag === 'retainer hours' || t.tag === 'retainer carried hours') return s;
+    return s + (t.quoteHours || 0);
+  }, 0);
+  var totalCredit = tasks.reduce(function(s,t){
+    return s + (t.tag === 'retainer hours' && t.quoteHours ? t.quoteHours : 0);
+  }, 0);
+
+  // Closing balance comes from the year view calculation (spreadsheet-style cascade)
+  // This is more reliable than reading ClickUp's Retainer Balance field
+  var closingBal = null;
+  if (yearData) {
+    var ym = yearData.months.find(function(m){ return m.month === data.month; });
+    if (ym) closingBal = ym.closingBalance;
+  }
+
+  var rows = tasks.map(function(t) {
+    var hrs = t.quoteHours != null
+      ? '<span class="'+(t.tag==='retainer hours'?'g':'o')+'">'+(t.tag==='retainer hours'?'+':'-')+t.quoteHours+'h</span>'
+      : '—';
+    var bal = t.retainerBalance != null
+      ? '<span class="'+balCls(t.retainerBalance)+'">'+fmt(t.retainerBalance)+'</span>'
+      : (data.isFuture ? '<span style="color:var(--muted)">projected</span>' : '—');
+    var link = t.url
+      ? '<a href="'+t.url+'" target="_blank" style="color:var(--text);text-decoration:none">'+esc(t.name)+'</a>'
+      : esc(t.name);
+    // Secondary labels (short order, discovery, etc.)
+    var extraLabels = (t.labels||[]).map(function(l){
+      return '<span style="display:inline-block;margin-left:4px;padding:1px 6px;border-radius:3px;font-size:9px;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0">'+esc(l)+'</span>';
+    }).join('');
+    return '<tr><td>'+tagPill(t.tag, t.isForecast)+'</td>'
+      +'<td>'+link+extraLabels+'</td>'
+      +'<td style="color:var(--muted)">'+esc(t.listName)+'</td>'
+      +'<td>'+hrs+'</td><td>'+bal+'</td></tr>';
+  }).join('');
+
+  // Total row
+  var totalRow = '<tr style="background:#f8fafc;border-top:2px solid #cbd5e1">'
+    +'<td colspan="3" style="font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Total</td>'
+    +'<td><span class="o" style="font-size:14px">−'+totalHours+'h</span>'
+    +(totalCredit ? ' <span class="g" style="font-size:11px">+'+totalCredit+'h credit</span>' : '')
+    +'</td>'
+    +'<td>'+(closingBal !== null ? '<span class="'+balCls(closingBal)+'" style="font-size:16px;font-weight:800">'+fmt(closingBal)+'</span>' : '—')+'</td>'
+    +'</tr>';
+
+  el.innerHTML = '<table><thead><tr>'
+    +'<th>Category</th><th>Task</th><th>List</th><th>Hours</th><th>Running Balance</th>'
+    +'</tr></thead><tbody>'+rows+totalRow+'</tbody></table>';
+}
+
+// ── Trend SVG ─────────────────────────────────────────────────
+function buildSvg(months) {
+  var W=900, H=100, P=10;
+  var balVals  = months.map(function(m){ return m.closingBalance||0; });
+  var burnVals = months.map(function(m){ return m.hoursOut||0; });
+  var creditVal = months[0] ? (months[0].hoursIn||0) : 0;
+
+  // Shared scale across all values
+  var allVals = balVals.concat(burnVals).concat([0, creditVal]);
+  var min = Math.min.apply(null, allVals);
+  var max = Math.max.apply(null, allVals.concat([1]));
+  var rng = max-min||1;
+
+  function yPos(v) { return P+(1-(v-min)/rng)*(H-P*2); }
+  function xPos(i) { return P+(i/(balVals.length-1||1))*(W-P*2); }
+
+  // Balance points
+  var balPts = balVals.map(function(v,i){ return { x:xPos(i), y:yPos(v), v:v, m:months[i].month }; });
+  var balPoly = balPts.map(function(p){ return p.x+','+p.y; }).join(' ');
+
+  // Burn rate points
+  var burnPts = burnVals.map(function(v,i){ return { x:xPos(i), y:yPos(v) }; });
+  var burnPoly = burnPts.map(function(p){ return p.x+','+p.y; }).join(' ');
+
+  // Credit reference line
+  var creditY = yPos(creditVal);
+
+  var zeroY = yPos(0);
+
+  // Balance dots (clickable)
+  var dots = balPts.map(function(p){
+    return '<circle cx="'+p.x+'" cy="'+p.y+'" r="4" fill="'+bcRaw(p.v)+'" stroke="var(--bg)" stroke-width="1.5" style="cursor:pointer" onclick="selectMonth(\''+p.m+'\')"><title>'+p.m+': '+fmt(p.v)+'</title></circle>';
+  }).join('');
+
+  // Burn rate dots (smaller, orange)
+  var burnDots = burnPts.map(function(p,i){
+    return '<circle cx="'+p.x+'" cy="'+p.y+'" r="2.5" fill="#f97316" stroke="var(--bg)" stroke-width="1"><title>'+months[i].month+': '+burnVals[i]+'h burn</title></circle>';
+  }).join('');
+
+  var lbls = balPts.map(function(p,i){
+    return (i%3===0||i===balPts.length-1)
+      ? '<text x="'+p.x+'" y="'+(H+4)+'" text-anchor="middle" font-size="9" fill="#64748b">'+p.m+'</text>'
+      : '';
+  }).join('');
+
+  return '<svg viewBox="0 0 '+W+' '+(H+14)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;overflow:visible">'
+    // Zero line
+    +'<line x1="'+P+'" y1="'+zeroY+'" x2="'+(W-P)+'" y2="'+zeroY+'" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3,3"/>'
+    // Credit reference line
+    +'<line x1="'+P+'" y1="'+creditY+'" x2="'+(W-P)+'" y2="'+creditY+'" stroke="#10b981" stroke-width="1" stroke-dasharray="4,4" opacity="0.4"/>'
+    // Burn rate line
+    +'<polyline points="'+burnPoly+'" fill="none" stroke="#f97316" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.7"/>'
+    // Balance line
+    +'<polyline points="'+balPoly+'" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
+    +burnDots+dots+lbls+'</svg>';
+}
+
+// ── Capacity vs Commitment ────────────────────────────────────
+function buildCapComSection(months, credit) {
+  // Only show future months (including current)
+  var future = months.filter(function(m){ return m.isFuture || m.isCurrent; });
+  if (!future.length) return '';
+
+  // Find max value for scaling bars
+  var maxVal = Math.max.apply(null, future.map(function(m){
+    return Math.max(credit, (m.hoursOut || 0));
+  }).concat([1]));
+
+  var barH = 100; // max bar height in px
+
+  var cols = future.map(function(m) {
+    var committed = m.hoursOut || 0;
+    var projected = m.projectedHours || 0;
+    var recurring = committed - projected;
+    if (recurring < 0) recurring = 0;
+
+    var creditH = Math.round(credit / maxVal * barH);
+    var recurH  = Math.round(recurring / maxVal * barH);
+    var projH   = Math.round(projected / maxVal * barH);
+
+    var net = credit - committed;
+    var netCls = net >= 20 ? 'g' : net >= 0 ? 'a' : 'r';
+
+    return '<div class="capcom-col">'
+      +'<div class="capcom-label">'+m.month+'</div>'
+      +'<div class="capcom-bar-wrap">'
+      // Credit bar (left)
+      +'<div class="capcom-bar" style="height:'+creditH+'px;background:#3b82f6;opacity:.7">'
+      +'<span class="capcom-tip">'+credit+'h credit</span></div>'
+      // Committed bar (right, stacked: recurring + projected)
+      +'<div style="display:flex;flex-direction:column;align-items:center;gap:0">'
+      +(projH > 0 ? '<div class="capcom-bar" style="height:'+projH+'px;background:#8b5cf6;width:18px">'
+        +'<span class="capcom-tip">'+projected+'h projected</span></div>' : '')
+      +'<div class="capcom-bar" style="height:'+recurH+'px;background:#f97316;width:18px">'
+      +'<span class="capcom-tip">'+recurring+'h committed</span></div>'
+      +'</div>'
+      +'</div>'
+      +'<div class="capcom-net '+netCls+'">'+(net>0?'+':'')+Math.round(net)+'h</div>'
+      +'</div>';
+  }).join('');
+
+  return '<div class="capcom-wrap"><div class="capcom-inner">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between">'
+    +'<div class="capcom-title" style="margin-bottom:0">Capacity vs. Commitment</div>'
+    +'<div class="capcom-legend">'
+    +'<span class="capcom-leg-credit">Credit</span>'
+    +'<span class="capcom-leg-recur">Committed</span>'
+    +'<span class="capcom-leg-proj">Projected</span>'
+    +'</div></div>'
+    +'<div style="margin-top:14px" class="capcom-grid">'+cols+'</div>'
+    +'</div></div>';
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function balCls(v) { return v==null?'': v>=20?'pos': v>=0?'warn':'neg'; }
+function bc(v)     { return v==null?'var(--muted)': v>=20?'var(--green)': v>=0?'var(--amber)':'var(--red)'; }
+function bcRaw(v)  { return v==null?'#64748b': v>=20?'#10b981': v>=0?'#f59e0b':'#ef4444'; }
+function fmt(v)    { if(v==null)return'—'; return (v>0?'+':'')+v+'h'; }
+function esc(s)    { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function tagPill(tag, isForecast) {
+  if (isForecast) return '<span class="pill p-forecast">Recurring (forecast)</span>';
+  var map = {
+    'retainer hours':           ['p-credit',   'Retainer Credit'],
+    'retainer am hours':        ['p-am',       'Management'],
+    'retainer carried hours':   ['p-carried',  'Carried Hours'],
+    'retainer recurring':       ['p-recurring','BAU / Recurring'],
+    'additional support hours': ['p-support',  'Additional Support'],
+    'payg hours used':          ['p-payg',     'PAYG Hours Used'],
+    'projected':                ['p-projected','Projected'],
+  };
+  var m = map[tag] || ['p-project', 'Project'];
+  return '<span class="pill '+m[0]+'">'+m[1]+'</span>';
+}
+
+// ── Roadmap helpers ────────────────────────────────────────────
+function roadmapMonths() {
+  var now = new Date();
+  var mo  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var cur = mo[now.getMonth()] + ' ' + String(now.getFullYear()).slice(-2);
+  var idx = MONTHS_LIST.indexOf(cur);
+  return MONTHS_LIST.slice(idx < 0 ? 0 : idx);
+}
+
+function roadmapMonthOpts(months, selected) {
+  return '<option value="">↳ month</option>'
+    + months.map(function(m){
+        return '<option value="'+m+'"'+(m===selected?' selected':'')+'>'+m+'</option>';
+      }).join('');
+}
+
+function taskBarCols(t, months) {
+  var s = t.startMonth ? months.indexOf(t.startMonth) : -1;
+  var e = t.dueMonth   ? months.indexOf(t.dueMonth)   : -1;
+  if (s < 0 && e < 0) return null;
+
+  // Fractional offset within start month: 0=beginning, 1=end
+  // Calculated before clamping so we only apply the fraction when date is actually in view
+  var startFrac = (s >= 0 && t.startDay && t.startDaysInMonth)
+    ? (t.startDay - 1) / t.startDaysInMonth : 0;
+  // Fractional offset within due month: 0=beginning, 1=end
+  var dueFrac = (e >= 0 && t.dueDay && t.dueDaysInMonth)
+    ? t.dueDay / t.dueDaysInMonth : 1;
+
+  if (s < 0) { s = 0; startFrac = 0; }
+  if (e < 0) { e = months.length - 1; dueFrac = 1; }
+  if (s > e) e = s;
+
+  return { start:s, end:e + 1, startFrac:startFrac, dueFrac:dueFrac }; // end is exclusive (for colspan)
+}
+
+function onProjectionChange(clientIdx, taskId) {
+  var tid = taskId.replace(/[^a-zA-Z0-9]/g, '_');
+  var hEl = document.getElementById('ph-' + tid);
+  var mEl = document.getElementById('pm-' + tid);
+  if (!hEl || !mEl) return;
+  var hrs      = hEl.value.trim();
+  var month    = mEl.value;
+  var taskName = hEl.getAttribute('data-taskname') || '';
+  // Clear if both empty
+  if (!hrs && !month) {
+    yearData = null; // invalidate before async — prevents stale balance if user switches tabs immediately
+    run('saveProjection', clientIdx, taskId, taskName, null, null);
+    return;
+  }
+  if (!hrs || !month) return; // wait until both filled
+  yearData = null; // invalidate before async — prevents stale balance if user switches tabs immediately
+  run('saveProjection', clientIdx, taskId, taskName, parseFloat(hrs), month).then(function() {
+    hEl.style.borderColor = '#10b981';
+    setTimeout(function(){ hEl.style.borderColor = ''; }, 1200);
+  }).catch(function() {
+    hEl.style.borderColor = '#ef4444';
+    yearData = null; // ensure re-fetch even on error
+  });
+}
+
+// ── Roadmap: load & render ─────────────────────────────────────
+function loadRoadmap() {
+  document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Building roadmap…</div></div>';
+  document.getElementById('kpiStrip').innerHTML = '';
+  document.getElementById('tplBar').style.display = 'none';
+  Promise.all([
+    run('getPipelineData', selIdx),
+    run('getProjections', selIdx),
+  ]).then(function(r) {
+    renderRoadmap(r[0].tasks || [], r[1].projections || {});
+  }).catch(function(e){ showError(e.message); });
+}
+
+function renderRoadmap(tasks, projections) {
+  var months = roadmapMonths();
+
+  // Group by status group
+  var groups = [
+    { key:'pre',    label:'Pre-work',  color:'#8b5cf6', tasks:[] },
+    { key:'active', label:'In Flight', color:'#10b981', tasks:[] },
+    { key:'review', label:'In Review', color:'#f59e0b', tasks:[] },
+  ];
+  var gMap = {};
+  groups.forEach(function(g){ gMap[g.key] = g; });
+  tasks.forEach(function(t){
+    var m = STATUS_META[t.status];
+    (gMap[m ? m.group : 'active'] || gMap.active).tasks.push(t);
+  });
+  // Sort within groups by due date
+  groups.forEach(function(g){
+    g.tasks.sort(function(a,b){
+      var ai = a.dueMonth ? MONTHS_LIST.indexOf(a.dueMonth) : 999;
+      var bi = b.dueMonth ? MONTHS_LIST.indexOf(b.dueMonth) : 999;
+      return ai - bi;
+    });
+  });
+
+  // KPIs
+  var withDates = tasks.filter(function(t){ return t.startMonth||t.dueMonth; }).length;
+  var projIds   = Object.keys(projections);
+  var projHrs   = projIds.reduce(function(s,k){ return s+(projections[k].projectedHours||0); }, 0);
+  document.getElementById('kpiStrip').innerHTML = [
+    { label:'On Roadmap',       val:tasks.length,             sub:'active tasks',         col:'#64748b' },
+    { label:'Scheduled',        val:withDates,                sub:'have dates set',        col:'#34d399' },
+    { label:'Unscheduled',      val:tasks.length - withDates, sub:'no dates yet',          col:'#64748b' },
+    { label:'Projected Tasks',  val:projIds.length,           sub:'hour estimates added',  col:'#a78bfa' },
+    { label:'Projected Hours',  val:Math.round(projHrs)+'h', sub:'est. unquoted workload', col:'#818cf8' },
+  ].map(function(k){
+    return '<div class="kpi"><div class="kpi-label">'+k.label+'</div>'
+      +'<div class="kpi-value" style="color:'+k.col+'">'+k.val+'</div>'
+      +'<div class="kpi-sub">'+k.sub+'</div></div>';
+  }).join('');
+
+  document.getElementById('main').innerHTML = renderGantt(tasks, projections, months, groups);
+  document.getElementById('tplBar').style.display = 'none';
+  setTimeout(function(){ attachScrollFix('.gantt-outer'); }, 0);
+}
+
+function renderGantt(tasks, projections, months, groups) {
+  // colgroup
+  var colgroup = '<colgroup><col class="gantt-name-col">'
+    + months.map(function(){ return '<col class="gantt-mo-col">'; }).join('')
+    + '</colgroup>';
+
+  // Header
+  var now = roadmapMonths()[0];
+  var thead = '<thead><tr><th class="gantt-th-name">Task</th>'
+    + months.map(function(m){
+        return '<th class="gantt-th-month'+(m===now?' gantt-th-now':'')+'">'+m+'</th>';
+      }).join('')
+    + '</tr></thead>';
+
+  // Body
+  var tbody = '';
+  groups.forEach(function(g){
+    if (!g.tasks.length) return;
+    tbody += '<tr class="gantt-group-row"><td colspan="'+(months.length+1)+'" style="border-left:3px solid '+g.color+'">'
+      +'<span style="color:'+g.color+'">'+g.label+'</span>'
+      +' <span style="color:var(--muted);font-weight:400">· '+g.tasks.length+' task'+(g.tasks.length!==1?'s':'')+'</span>'
+      +'</td></tr>';
+    g.tasks.forEach(function(t){ tbody += ganttTaskRow(t, months, projections, now); });
+  });
+
+  return '<div class="roadmap-wrap">'
+    +'<div class="section-title">Roadmap · '+months[0]+' → '+months[months.length-1]+'</div>'
+    +'<div class="gantt-outer"><table class="gantt-table">'+colgroup+thead+'<tbody>'+tbody+'</tbody></table></div>'
+    +'</div>';
+}
+
+function ganttTaskRow(t, months, projections, nowMonth) {
+  var meta  = STATUS_META[t.status] || { color:'#64748b' };
+  var proj  = projections[t.id];
+  var tid   = t.id.replace(/[^a-zA-Z0-9]/g, '_');
+
+  // Name cell
+  var link = t.url ? '<a href="'+t.url+'" target="_blank" title="'+esc(t.name)+'">'+esc(t.name)+'</a>' : esc(t.name);
+  var priHtml = (t.priority && t.priority !== 'normal')
+    ? ' <span class="pri pri-'+t.priority+'">'+t.priority[0].toUpperCase()+'</span>' : '';
+
+  var hrsHtml;
+  if (t.quoteHours != null) {
+    hrsHtml = '<span class="hrs-pill" style="margin-top:4px;display:inline-block">'+t.quoteHours+'h confirmed</span>';
+  } else {
+    var pHrs = proj ? proj.projectedHours : '';
+    var pMo  = proj ? proj.targetMonth    : (t.dueMonth || '');
+    hrsHtml = '<div class="proj-row">'
+      +'<span class="proj-label">Est:</span>'
+      +'<input class="proj-input" type="number" min="0" step="1" placeholder="hrs" value="'+pHrs+'" '
+      +'id="ph-'+tid+'" data-taskname="'+esc(t.name)+'" onchange="onProjectionChange('+selIdx+',\''+t.id+'\')">'
+      +'<select class="proj-select" id="pm-'+tid+'" onchange="onProjectionChange('+selIdx+',\''+t.id+'\')">'
+      + roadmapMonthOpts(months, pMo)
+      +'</select></div>';
+  }
+
+  var statusLabel = meta.label || t.status || '';
+  var statusTag = statusLabel
+    ? '<div><span class="gantt-status" style="background:'+meta.color+'18;color:'+meta.color+';border:1px solid '+meta.color+'40">'+esc(statusLabel)+'</span></div>'
+    : '';
+
+  var nameTd = '<td class="gantt-name-cell">'
+    +'<div class="gantt-name-inner">'
+    +'<span class="gantt-dot" style="background:'+meta.color+'"></span>'
+    +'<div class="gantt-name-text">'+link+priHtml+statusTag+'<div class="gantt-hrs">'+hrsHtml+'</div></div>'
+    +'</div></td>';
+
+  // Month cells with bar
+  var bc = taskBarCols(t, months);
+  var monthTds = '';
+
+  if (!bc) {
+    months.forEach(function(m){ monthTds += '<td class="gantt-cell'+(m===nowMonth?' gantt-now-col':'')+'"></td>'; });
+  } else {
+    for (var i = 0; i < bc.start; i++) {
+      monthTds += '<td class="gantt-cell'+(months[i]===nowMonth?' gantt-now-col':'')+'"></td>';
+    }
+    var span   = bc.end - bc.start;
+    var barLbl = t.quoteHours != null ? t.quoteHours+'h' : (proj&&proj.projectedHours ? '~'+proj.projectedHours+'h' : '');
+    // Fractional margins: startFrac/span gives the left indent as % of total colspan width;
+    // (1-dueFrac)/span gives the right trim. This makes Apr 15 fill only half of the April column, etc.
+    var mlPct  = (bc.startFrac / span * 100).toFixed(1);
+    var mrPct  = ((1 - bc.dueFrac) / span * 100).toFixed(1);
+    monthTds += '<td class="gantt-bar-cell'+(months[bc.start]===nowMonth?' gantt-now-col':'')+'" colspan="'+span+'">'
+      +'<div class="gantt-bar" style="background:'+meta.color+'22;border:1px solid '+meta.color+'60;color:'+meta.color+';margin-left:'+mlPct+'%;margin-right:'+mrPct+'%">'
+      +esc(barLbl)+'</div></td>';
+    for (var j = bc.end; j < months.length; j++) {
+      monthTds += '<td class="gantt-cell'+(months[j]===nowMonth?' gantt-now-col':'')+'"></td>';
+    }
+  }
+
+  return '<tr>'+nameTd+monthTds+'</tr>';
+}
+
+// ── Pipeline: load & render ────────────────────────────────────
+function loadPipeline() {
+  document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Loading pipeline…</div></div>';
+  document.getElementById('kpiStrip').innerHTML = '';
+  document.getElementById('tplBar').style.display = 'none';
+  run('getPipelineData', selIdx).then(function(data) {
+    pipelineData = data;
+    renderPipeline(data);
+  }).catch(function(e) { showError(e.message); });
+}
+
+function renderPipeline(d) {
+  var tasks = d.tasks || [];
+
+  // ── Group by status ─────────────────────────────────────────
+  var byStatus = {};
+  PIPELINE_ORDER.forEach(function(s){ byStatus[s] = []; });
+  tasks.forEach(function(t){
+    if (byStatus[t.status] !== undefined) byStatus[t.status].push(t);
+  });
+
+  // ── Group by due month ──────────────────────────────────────
+  var byMonth = {}, unscheduled = [];
+  tasks.forEach(function(t){
+    if (t.dueMonth) {
+      if (!byMonth[t.dueMonth]) byMonth[t.dueMonth] = [];
+      byMonth[t.dueMonth].push(t);
+    } else { unscheduled.push(t); }
+  });
+
+  // ── KPIs ────────────────────────────────────────────────────
+  var groups = { pre:0, active:0, review:0 };
+  tasks.forEach(function(t){
+    var m = STATUS_META[t.status];
+    if (m) groups[m.group] = (groups[m.group] || 0) + 1;
+  });
+  document.getElementById('kpiStrip').innerHTML = [
+    { label:'In Pipeline',     val: tasks.length,           sub: 'active tasks',         col:'#64748b' },
+    { label:'Pre-work',        val: groups.pre,             sub: 'scoping / quoting',    col:'#a78bfa' },
+    { label:'In Flight',       val: groups.active,          sub: 'discovery → progress', col:'#10b981' },
+    { label:'In Review',       val: groups.review,          sub: 'approval stages',      col:'#f59e0b' },
+    { label:'Quoted Hours',    val: d.totalQuoted ? d.totalQuoted+'h' : '—', sub:'across pipeline', col:'#2563eb' },
+    { label:'Scheduled',       val: d.scheduledTasks,       sub: 'have a due date',      col:'#34d399' },
+    { label:'Unscheduled',     val: tasks.length - d.scheduledTasks, sub:'no due date yet', col:'#64748b' },
+  ].map(function(k){
+    return '<div class="kpi"><div class="kpi-label">'+k.label+'</div>'
+      +'<div class="kpi-value" style="color:'+k.col+'">'+k.val+'</div>'
+      +'<div class="kpi-sub">'+k.sub+'</div></div>';
+  }).join('');
+
+  document.getElementById('tplBar').style.display = 'none';
+  document.getElementById('main').innerHTML = renderKanban(byStatus);
+  setTimeout(function(){ attachScrollFix('.kanban'); }, 0);
+}
+
+// ── Kanban ─────────────────────────────────────────────────────
+function renderKanban(byStatus) {
+  var lastGroup = null;
+  var cols = PIPELINE_ORDER.map(function(status) {
+    var meta  = STATUS_META[status] || { label:status, color:'#64748b', group:'active' };
+    var tasks = byStatus[status] || [];
+    var divider = (lastGroup && meta.group !== lastGroup)
+      ? '<div class="kanban-divider"></div>' : '';
+    lastGroup = meta.group;
+    var cards = tasks.length
+      ? tasks.map(function(t){ return taskCard(t, meta.color); }).join('')
+      : '<div class="k-empty">Empty</div>';
+    return divider
+      + '<div class="kanban-col">'
+      + '<div class="k-header" style="border-color:'+meta.color+'40">'
+      + '<div class="k-label" style="color:'+meta.color+'">'+meta.label+'</div>'
+      + '<div class="k-count">'+tasks.length+' task'+(tasks.length!==1?'s':'')+'</div>'
+      + '</div>'
+      + '<div class="k-tasks">'+cards+'</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="kanban-section">'
+    + '<div class="section-title">Status Pipeline</div>'
+    + '<div class="kanban">'+cols+'</div></div>';
+}
+
+function taskCard(t, borderColor) {
+  var link = t.url
+    ? '<a href="'+t.url+'" target="_blank" title="'+esc(t.name)+'">'+esc(t.name)+'</a>'
+    : '<span>'+esc(t.name)+'</span>';
+  var meta = '';
+  if (t.priority && t.priority !== 'normal') {
+    var pc = PRI_COLOR[t.priority] || '#64748b';
+    meta += '<span class="pri pri-'+t.priority+'" style="border-color:'+pc+'35;color:'+pc+';background:'+pc+'15">'+t.priority+'</span>';
+  }
+  if (t.quoteHours != null) meta += '<span class="hrs-pill">'+t.quoteHours+'h</span>';
+  if (t.dueMonth)           meta += '<span class="date-pill">'+t.dueMonth+'</span>';
+  return '<div class="task-card" style="border-left:3px solid '+borderColor+'40">'
+    + link
+    + (meta ? '<div class="task-meta">'+meta+'</div>' : '')
+    + '</div>';
+}
+
+// ── Timeline ───────────────────────────────────────────────────
+function renderTimeline(byMonth, unscheduled) {
+  // Determine which months to show: current month onwards in MONTHS_LIST
+  var now  = new Date();
+  var moNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var curStr  = moNames[now.getMonth()] + ' ' + String(now.getFullYear()).slice(-2);
+  var curIdx  = MONTHS_LIST.indexOf(curStr);
+  if (curIdx < 0) curIdx = 0;
+  var futureMos = MONTHS_LIST.slice(curIdx); // e.g. Apr 26 → Dec 26
+
+  // Only show months that either have tasks or are the current/near-future
+  // Always show next 3 months even if empty; beyond that only if they have tasks
+  var visibleMos = futureMos.filter(function(m, i){
+    return i < 3 || (byMonth[m] && byMonth[m].length > 0);
+  });
+  if (!visibleMos.length) visibleMos = futureMos.slice(0, 6);
+
+  var colCount = visibleMos.length + 1; // +1 for Unscheduled
+  var gridCols = 'repeat(' + visibleMos.length + ',1fr) 1.3fr';
+
+  var cols = visibleMos.map(function(m, i) {
+    var tasks  = byMonth[m] || [];
+    var totHrs = tasks.reduce(function(s,t){ return s+(t.quoteHours||0); }, 0);
+    var isNow  = m === curStr;
+
+    // Capacity bar: use yearData credit if available
+    var capBar = '';
+    if (yearData) {
+      var ym = yearData.months.find(function(mo){ return mo.month === m; });
+      if (ym && totHrs > 0) {
+        var avail = yearData.monthlyCredit;
+        var pct   = Math.min(totHrs / avail * 100, 100);
+        var cls   = pct > 90 ? 'cap-over' : pct > 60 ? 'cap-warn' : 'cap-ok';
+        capBar = '<div class="cap-track" title="'+totHrs+'h planned of ~'+avail+'h/mo credit">'
+          +'<div class="cap-fill '+cls+'" style="width:'+pct+'%"></div></div>';
+      }
+    }
+
+    var chips = tasks.length
+      ? tasks.map(function(t){ return timelineChip(t); }).join('')
+      : '<div class="tl-empty">No tasks due</div>';
+
+    return '<div class="tl-col">'
+      +'<div class="tl-col-hdr">'
+      +'<span class="tl-month-lbl'+(isNow?' tl-now':'')+'">'+m+(isNow?' · Now':'')+'</span>'
+      +(totHrs ? '<span class="tl-month-hrs">'+totHrs+'h</span>' : '')
+      +'</div>'
+      +(capBar ? '<div style="padding:5px 10px 0">'+capBar+'</div>' : '')
+      +'<div class="tl-tasks">'+chips+'</div>'
+      +'</div>';
+  }).join('');
+
+  // Unscheduled column
+  var unschChips = unscheduled.length
+    ? unscheduled.map(function(t){ return timelineChip(t); }).join('')
+    : '<div class="tl-empty">All tasks have a due date 👍</div>';
+  var unschCol = '<div class="tl-col tl-unscheduled">'
+    +'<div class="tl-col-hdr">'
+    +'<span class="tl-month-lbl">Unscheduled</span>'
+    +'<span style="font-size:10px;color:var(--muted)">'+unscheduled.length+'</span>'
+    +'</div>'
+    +'<div class="tl-tasks">'+unschChips+'</div>'
+    +'</div>';
+
+  return '<div class="tl-section">'
+    +'<div class="section-title">Delivery Timeline · by Due Date</div>'
+    +'<div class="tl-grid" style="grid-template-columns:'+gridCols+'">'+cols+unschCol+'</div>'
+    +'</div>';
+}
+
+function timelineChip(t) {
+  var link = t.url
+    ? '<a href="'+t.url+'" target="_blank" title="'+esc(t.name)+'">'+esc(t.name)+'</a>'
+    : '<span>'+esc(t.name)+'</span>';
+  var meta  = STATUS_META[t.status] || { color:'#64748b' };
+  var right = '';
+  if (t.priority && t.priority !== 'normal') {
+    var pc = PRI_COLOR[t.priority] || '#64748b';
+    right += '<span class="pri pri-'+t.priority+'" style="border-color:'+pc+'35;color:'+pc+';background:'+pc+'15">'+t.priority[0].toUpperCase()+'</span>';
+  }
+  if (t.quoteHours != null) right += '<span style="font-size:9px;color:var(--muted)">'+t.quoteHours+'h</span>';
+  return '<div class="tl-chip" style="border-left-color:'+meta.color+'">'
+    + link
+    + (right ? '<div class="tl-chip-right">'+right+'</div>' : '')
+    + '</div>';
+}
+
+// ── Overview ──────────────────────────────────────────────────
+var overviewData = null;
+function loadOverview() {
+  document.getElementById('kpiStrip').innerHTML = '';
+  document.getElementById('tplBar').style.display = 'none';
+  document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Loading all clients…</div></div>';
+  run('getOverview', yearStart).then(function(data) {
+    overviewData = data;
+    renderOverview(data);
+  }).catch(function(e) { showError(e.message); });
+}
+
+function overviewSpark(months) {
+  if (!months || !months.length) return '';
+  var vals = months.map(function(m){ return m.closingBalance || 0; });
+  var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+  var range = mx - mn || 1;
+  var W = 120, H = 28, P = 2;
+  var pts = vals.map(function(v, i) {
+    return (P + i * ((W - 2*P) / (vals.length - 1 || 1))).toFixed(1) + ',' + (H - P - ((v - mn) / range) * (H - 2*P)).toFixed(1);
+  });
+  var color = vals[vals.length - 1] >= 20 ? '#10b981' : vals[vals.length - 1] >= 0 ? '#f59e0b' : '#ef4444';
+  return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:32px"><polyline points="'+pts.join(' ')+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+}
+
+function calcHealth(months, credit, pipeHrs) {
+  // Goal: use ALL retainer hours. Balance of 0 = perfect.
+  // Positive balance = underutilised (bad — missed delivery opportunity).
+  // Negative balance = over-serviced (bad — working on credit).
+  // Small negative is much better than large positive unused.
+
+  var current = months.find(function(m){ return m.isCurrent; });
+  var past    = months.filter(function(m){ return !m.isFuture && !m.isCurrent; });
+  var curBal  = current ? current.closingBalance : 0;
+
+  // Current month score: how close to 0 is the balance?
+  // Scale by credit so it's proportional.
+  var total;
+  if (!credit) {
+    total = 50;
+  } else if (curBal <= 0) {
+    // At or over: 0h = 100, then lose points as you go negative
+    // -2.5h on 150h credit ≈ 98. -75h on 150h ≈ 50. -150h = 0.
+    var overRatio = Math.abs(curBal) / credit;
+    total = Math.max(0, Math.round(100 - overRatio * 100));
+  } else {
+    // Positive / underutilised: penalise harder.
+    // +10h on 150h ≈ 80. +54h on 55h ≈ 2. +75h on 150h ≈ 50.
+    var underRatio = curBal / credit;
+    total = Math.max(0, Math.round(100 - underRatio * 100));
+  }
+
+  // Outlook: next 6 months — how well planned are they?
+  var future = months.filter(function(m){ return m.isFuture; }).slice(0, 6);
+  var futHours = future.reduce(function(s,m){ return s + (m.hoursOut || 0); }, 0);
+  var futCapacity = future.length * credit;
+  var futUtil = futCapacity ? futHours / futCapacity * 100 : 0;
+  var futNeg = future.filter(function(m){ return (m.closingBalance || 0) < 0; }).length;
+
+  var outPlan = Math.min(50, Math.round(futUtil / 100 * 50));
+  var outHealth = Math.max(0, 30 - futNeg * 10);
+  var outPipe = Math.min(20, Math.round(pipeHrs / (credit || 1) * 8));
+  if (pipeHrs > 0 && outPipe < 5) outPipe = 5;
+  var outlook = outPlan + outHealth + outPipe;
+
+  var negCount = past.slice(-3).filter(function(m){ return (m.closingBalance || 0) < 0; }).length;
+
+  return {
+    total: total,
+    label: total >= 70 ? 'Healthy' : total >= 40 ? 'Warning' : 'At Risk',
+    cls:   total >= 70 ? 'ov-health-good' : total >= 40 ? 'ov-health-warn' : 'ov-health-bad',
+    outlook: outlook,
+    negCount: negCount,
+    avgBurn: Math.round(past.length ? past.reduce(function(s,m){ return s+(m.hoursOut||0); },0) / past.length : 0),
+    curBal: curBal,
+    credit: credit,
+  };
+}
+
+function healthTooltip(h) {
+  var balLabel = h.curBal <= 0 ? 'Over by '+Math.abs(h.curBal)+'h' : h.curBal+'h remaining of '+h.credit+'h';
+  var usedPct = h.credit ? Math.round((1 - h.curBal / h.credit) * 100) : 0;
+  return 'This Month\n'
+    +'━━━━━━━━━━━━━━━━\n'
+    +'Balance: '+fmt(h.curBal)+' / '+h.credit+'h credit\n'
+    +'Used: '+usedPct+'%\n'
+    +(h.negCount > 0 ? h.negCount+' of last 3 months over-serviced\n' : '')
+    +'\n6-Month Outlook\n'
+    +'━━━━━━━━━━━━━━━━\n'
+    +'How well planned are the next 6 months';
+}
+
+function renderOverview(data) {
+  var clientData = data.clients || [];
+
+  // Calculate health for all clients
+  var healthScores = clientData.map(function(c) {
+    if (c.error) return null;
+    var yr = c.budgets[0] && c.budgets[0].year;
+    if (!yr) return null;
+    var pipe = c.pipeline || {};
+    return calcHealth(yr.months || [], yr.monthlyCredit || 0, pipe.totalQuoted || 0);
+  });
+
+  // Aggregate KPIs
+  var totalClients = clientData.length;
+  var healthy = 0, warning = 0, atrisk = 0;
+  var goodOutlook = 0, mixedOutlook = 0, poorOutlook = 0;
+  healthScores.forEach(function(h) {
+    if (!h) { atrisk++; poorOutlook++; return; }
+    if (h.total >= 70) healthy++;
+    else if (h.total >= 40) warning++;
+    else atrisk++;
+    if (h.outlook >= 70) goodOutlook++;
+    else if (h.outlook >= 40) mixedOutlook++;
+    else poorOutlook++;
+  });
+
+  document.getElementById('kpiStrip').innerHTML = [
+    { label:'Total Clients',     val:totalClients,  col:'#64748b' },
+    { label:'Healthy',           val:healthy,        col:'#10b981' },
+    { label:'Warning',           val:warning,        col:'#f59e0b' },
+    { label:'At Risk',           val:atrisk,         col:'#ef4444' },
+    { label:'Outlook Good',      val:goodOutlook,    col:'#10b981' },
+    { label:'Outlook Poor',      val:poorOutlook,    col:'#ef4444' },
+  ].map(function(k){
+    return '<div class="kpi"><div class="kpi-label">'+k.label+'</div>'
+      +'<div class="kpi-value" style="color:'+k.col+'">'+k.val+'</div></div>';
+  }).join('');
+
+  // Sort clients by health: worst first
+  var indices = clientData.map(function(_, i){ return i; });
+  indices.sort(function(a, b) {
+    var sa = healthScores[a] ? healthScores[a].total : -1;
+    var sb = healthScores[b] ? healthScores[b].total : -1;
+    return sa - sb;
+  });
+
+  var cards = indices.map(function(ci) {
+    var c = clientData[ci];
+    var h = healthScores[ci];
+    if (c.error || !h) {
+      return '<div class="ov-card">'
+        +'<div class="ov-card-header"><span class="ov-client-name">'+esc(c.name)+'</span>'
+        +'<span class="ov-health ov-health-bad">Error</span></div>'
+        +'<div style="color:var(--muted);font-size:12px">'+esc(c.error||'No data')+'</div></div>';
+    }
+
+    var yr = c.budgets[0].year;
+    var months = yr.months || [];
+    var current = months.find(function(m){ return m.isCurrent; });
+    var last    = months[months.length - 1];
+    var curBal  = current ? current.closingBalance : 0;
+    var endBal  = last ? last.closingBalance : 0;
+
+    var pipe = c.pipeline || {};
+    var pipeTasks = pipe.totalTasks || 0;
+    var pipeHrs   = pipe.totalQuoted || 0;
+
+    // Budget labels for multi-budget clients
+    var budgetLabels = '';
+    if (c.budgets.length > 1) {
+      budgetLabels = c.budgets.map(function(b) {
+        var byr = b.year;
+        var bcur = (byr.months || []).find(function(m){ return m.isCurrent; });
+        var bbal = bcur ? bcur.closingBalance : 0;
+        return '<span class="ov-pip-tag" style="background:'+(bbal>=20?'#d1fae5;color:#047857':bbal>=0?'#fef3c7;color:#b45309':'#fef2f2;color:#dc2626')+'">'
+          +(b.budget||'All')+': '+fmt(bbal)+'</span>';
+      }).join('');
+    }
+
+    function scoreColor(v) { return v>=70?'#10b981':v>=40?'#f59e0b':'#ef4444'; }
+    var scoreBar = '<div title="'+healthTooltip(h)+'" style="margin-bottom:14px;cursor:help">'
+      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+      +'<span style="font-size:9px;color:var(--muted);width:52px">This month</span>'
+      +'<div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">'
+      +'<div style="height:100%;width:'+h.total+'%;border-radius:3px;background:'+scoreColor(h.total)+'"></div>'
+      +'</div>'
+      +'</div>'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<span style="font-size:9px;color:var(--muted);width:52px">6mo outlook</span>'
+      +'<div style="flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden">'
+      +'<div style="height:100%;width:'+h.outlook+'%;border-radius:2px;background:'+scoreColor(h.outlook)+'"></div>'
+      +'</div>'
+      +'</div>'
+      +'</div>';
+
+    return '<div class="ov-card" onclick="goToClient('+c.idx+')">'
+      +'<div class="ov-card-header">'
+      +'<span class="ov-client-name">'+esc(c.name)+'</span>'
+      +'<span class="ov-health '+h.cls+'">'+h.label+'</span>'
+      +'</div>'
+      +scoreBar
+      +'<div class="ov-metrics">'
+      +'<div class="ov-metric"><div class="ov-metric-label">Current</div><div class="ov-metric-value" style="color:'+bc(curBal)+'">'+fmt(curBal)+'<span style="font-size:11px;color:var(--muted);font-weight:400"> / '+(yr.monthlyCredit||0)+'h</span></div></div>'
+      +'<div class="ov-metric"><div class="ov-metric-label">Avg Burn</div><div class="ov-metric-value">'+h.avgBurn+'h</div></div>'
+      +'<div class="ov-metric"><div class="ov-metric-label">Year-End</div><div class="ov-metric-value" style="color:'+bc(endBal)+'">'+fmt(endBal)+'</div></div>'
+      +'</div>'
+      +(budgetLabels ? '<div class="ov-pipeline-row">'+budgetLabels+'</div>' : '')
+      +'<div class="ov-pipeline-row">'
+      +'<span class="ov-pip-tag" style="background:#e0e7ff;color:#4338ca">'+pipeTasks+' pipeline</span>'
+      +'<span class="ov-pip-tag" style="background:#dbeafe;color:#1d4ed8">'+pipeHrs+'h quoted</span>'
+      +(h.curBal < 0 ? '<span class="ov-pip-tag" style="background:#fef2f2;color:#dc2626">'+fmt(h.curBal)+' over</span>' : '')
+      +(h.negCount > 0 ? '<span class="ov-pip-tag" style="background:#fef3c7;color:#b45309">'+h.negCount+'mo over-serviced</span>' : '')
+      +'</div>'
+      +'</div>';
+  }).join('');
+
+  document.getElementById('main').innerHTML = '<div class="overview-section">'
+    +'<div class="section-title">Client Overview · '+yearStart.replace(/(\w+)\s(\d+)/, '20$2')+'</div>'
+    +'<div class="overview-grid">'+cards+'</div></div>';
+}
+
+function goToClient(idx) {
+  document.getElementById('clientSel').value = idx;
+  switchView('balance');
+  onClientChange();
+}
+
+// ── Horizontal scroll fix (Mac trackpad) ──────────────────────
+// Global listener: intercept horizontal wheel events inside any
+// scrollable container so the browser never triggers back/forward
+// navigation. Survives DOM rebuilds (no per-element attachment).
+document.addEventListener('wheel', function(e) {
+  var dx = e.deltaX;
+  if (!dx) return;
+  // Walk up from target to find nearest horizontally-scrollable ancestor
+  var node = e.target;
+  while (node && node !== document) {
+    if (node.scrollWidth > node.clientWidth) {
+      var style = window.getComputedStyle(node);
+      var ox = style.overflowX;
+      if (ox === 'auto' || ox === 'scroll') {
+        e.preventDefault();
+        node.scrollLeft = Math.max(0, Math.min(node.scrollLeft + dx, node.scrollWidth - node.clientWidth));
+        return;
+      }
+    }
+    node = node.parentElement;
+  }
+}, { passive: false });
+function attachScrollFix() { /* now handled globally */ }
+
+function showLoading(msg) {
+  document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>'+msg+'</div></div>';
+  document.getElementById('kpiStrip').innerHTML = '';
+  document.getElementById('tplBar').style.display = 'none';
+}
+function forceRefresh() {
+  if (activeView === 'overview') {
+    overviewData = null;
+    loadOverview();
+    return;
+  }
+  if (activeView === 'pipeline') {
+    pipelineData = null;
+    document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Refreshing pipeline…</div></div>';
+    document.getElementById('kpiStrip').innerHTML = '';
+    run('forceRefreshPipelineData', selIdx).then(function(data) {
+      pipelineData = data;
+      renderPipeline(data);
+    }).catch(function(e){ showError(e.message); });
+  } else if (activeView === 'roadmap') {
+    document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Refreshing roadmap…</div></div>';
+    document.getElementById('kpiStrip').innerHTML = '';
+    Promise.all([
+      run('forceRefreshPipelineData', selIdx),
+      run('getProjections', selIdx),
+    ]).then(function(r){ renderRoadmap(r[0].tasks || [], (r[1].projections || {})); })
+      .catch(function(e){ showError(e.message); });
+  } else {
+    yearData = null;
+    showLoading('Refreshing…');
+    run('forceRefreshYearView', selIdx, budget, yearStart).then(function(data) {
+      yearData = data;
+      renderYear(data);
+      if (activeMonth) loadDrilldown(activeMonth);
+    }).catch(function(e){ showError(e.message); });
+  }
+}
+
+function showError(msg) {
+  document.getElementById('main').innerHTML = '<div class="state-msg" style="color:var(--red)">⚠ '+esc(msg)+'</div>';
+}
+</script>
+</body>
+</html>

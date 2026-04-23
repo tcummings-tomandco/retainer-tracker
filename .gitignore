@@ -1,0 +1,4 @@
+.env
+node_modules/
+data/projections.json
+.DS_Store

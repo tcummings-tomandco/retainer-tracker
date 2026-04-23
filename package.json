@@ -1,0 +1,13 @@
+{
+  "name": "retainer-api",
+  "version": "1.0.0",
+  "description": "Retainer tracker API — Node.js port of the GAS backend",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}

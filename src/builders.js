@@ -101,7 +101,7 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
     tasks = planned.concat(
       templates.filter(t => !seen[t.id]).map(t => Object.assign({}, t, { isForecast: true }))
     );
-    const projData = externalProjections || getProjections(clientIndex);
+    const projData = externalProjections || await getProjections(clientIndex);
     for (const pid in projData) {
       const p = projData[pid];
       if (p.targetMonth === month) {
@@ -130,10 +130,11 @@ async function buildPipelineData(clientIndex) {
 
 async function getYearView(clientIndex, budget, yearStart) {
   const cacheKey = `year_${clientIndex}_${budget || 'all'}_${yearStart || 'Jan 26'}`;
-  const cached   = getCache(cacheKey);
+  const cached   = await getCache(cacheKey);
   if (cached) {
+    const proj = await getProjections(clientIndex);
     let out = reapplyDateFlags(cached);
-    out = applyProjectionsToYear(out, getProjections(clientIndex));
+    out = applyProjectionsToYear(out, proj);
     out.fromCache = true;
     return out;
   }
@@ -141,47 +142,47 @@ async function getYearView(clientIndex, budget, yearStart) {
   result.cachedAt = new Date().toISOString();
   const toCache = Object.assign({}, result);
   delete toCache.monthTasksMap;
-  setCache(cacheKey, toCache);
-  return applyProjectionsToYear(result, getProjections(clientIndex));
+  await setCache(cacheKey, toCache);
+  return applyProjectionsToYear(result, await getProjections(clientIndex));
 }
 
 async function getMonthData(clientIndex, budget, month) {
   const cacheKey = `month_${clientIndex}_${budget || 'all'}_${month}`;
-  const cached   = getCache(cacheKey);
+  const cached   = await getCache(cacheKey);
   if (cached) { cached.fromCache = true; return cached; }
   const result = await buildMonthData(clientIndex, budget, month);
   result.cachedAt = new Date().toISOString();
-  setCache(cacheKey, result);
+  await setCache(cacheKey, result);
   return result;
 }
 
 async function getPipelineData(clientIndex) {
   const cacheKey = `pipeline_${clientIndex}`;
-  const cached   = getCache(cacheKey);
+  const cached   = await getCache(cacheKey);
   if (cached) { cached.fromCache = true; return cached; }
   const result = await buildPipelineData(clientIndex);
   result.cachedAt = new Date().toISOString();
-  setCache(cacheKey, result);
+  await setCache(cacheKey, result);
   return result;
 }
 
 async function forceRefreshYearView(clientIndex, budget, yearStart) {
   const cacheKey = `year_${clientIndex}_${budget || 'all'}_${yearStart || 'Jan 26'}`;
-  deleteCache(cacheKey);
+  await deleteCache(cacheKey);
   const result = await buildYearView(clientIndex, budget, yearStart);
   result.cachedAt = new Date().toISOString();
   const toCache = Object.assign({}, result);
   delete toCache.monthTasksMap;
-  setCache(cacheKey, toCache);
-  return applyProjectionsToYear(result, getProjections(clientIndex));
+  await setCache(cacheKey, toCache);
+  return applyProjectionsToYear(result, await getProjections(clientIndex));
 }
 
 async function forceRefreshPipelineData(clientIndex) {
   const cacheKey = `pipeline_${clientIndex}`;
-  deleteCache(cacheKey);
+  await deleteCache(cacheKey);
   const result = await buildPipelineData(clientIndex);
   result.cachedAt = new Date().toISOString();
-  setCache(cacheKey, result);
+  await setCache(cacheKey, result);
   return result;
 }
 
@@ -191,7 +192,7 @@ async function refreshAllCaches() {
 
   for (let idx = 0; idx < CLIENTS.length; idx++) {
     const client = CLIENTS[idx];
-    const clientProjections = getProjections(idx);
+    const clientProjections = await getProjections(idx);
     const paygCache = await buildPaygDiscoveryCache(tid, client.spaceId);
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
 
@@ -208,12 +209,12 @@ async function refreshAllCaches() {
             const mk = `month_${idx}_${budget || 'all'}_${m}`;
             const md = await buildMonthData(idx, budget, m, paygCache, yr.monthTasksMap && yr.monthTasksMap[m], clientProjections);
             md.cachedAt = new Date().toISOString();
-            setCache(mk, md);
+            await setCache(mk, md);
           }
 
           const yrToCache = Object.assign({}, yr);
           delete yrToCache.monthTasksMap;
-          setCache(yrKey, yrToCache);
+          await setCache(yrKey, yrToCache);
           console.log(`✓ ${client.name}${budget ? ` (${budget})` : ''} ${ys}`);
         } catch (e) { console.log(`✗ ${client.name} ${ys}: ${e}`); }
       }
@@ -226,7 +227,7 @@ async function refreshAllCaches() {
       const pk = `pipeline_${idx}`;
       const pd = await buildPipelineData(idx);
       pd.cachedAt = new Date().toISOString();
-      setCache(pk, pd);
+      await setCache(pk, pd);
       console.log(`✓ Pipeline ${client.name} (${pd.totalTasks || 0} tasks)`);
     } catch (e) { console.log(`✗ Pipeline ${client.name}: ${e}`); }
   }

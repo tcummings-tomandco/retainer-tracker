@@ -41,24 +41,25 @@ app.get('/api/pipeline', async (req, res) => {
 });
 
 // ── Projections ───────────────────────────────────────────────
-app.get('/api/projections', (req, res) => {
+app.get('/api/projections', async (req, res) => {
   try {
     const { client = 0 } = req.query;
-    res.json({ ok: true, projections: getProjections(client) });
+    const projections = await getProjections(client);
+    res.json({ ok: true, projections });
   } catch (e) { res.json({ ok: false, error: e.message, projections: {} }); }
 });
 
-app.post('/api/projections', (req, res) => {
+app.post('/api/projections', async (req, res) => {
   try {
     const { clientIndex, taskId, taskName, projectedHours, targetMonth } = req.body;
     const idx = parseInt(clientIndex, 10);
-    saveProjection(idx, taskId, taskName, projectedHours, targetMonth);
+    await saveProjection(idx, taskId, taskName, projectedHours, targetMonth);
     // Bust affected month cache — same logic as GAS saveProjection
     const client  = CLIENTS[idx];
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
-    budgets.forEach(b => {
-      if (targetMonth) deleteCache(`month_${idx}_${b || 'all'}_${targetMonth}`);
-    });
+    await Promise.all(budgets.map(b =>
+      targetMonth ? deleteCache(`month_${idx}_${b || 'all'}_${targetMonth}`) : Promise.resolve()
+    ));
     res.json({ ok: true });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });

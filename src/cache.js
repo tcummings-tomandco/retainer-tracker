@@ -1,23 +1,44 @@
 'use strict';
+// Firestore-backed cache — replaces the in-memory Map.
+// Same interface as before but all functions are now async.
+// Swap back to Map-based cache by reverting this file — nothing else changes.
+const { db } = require('./firestore');
 const { CACHE_SECONDS } = require('./config');
 
-// In-memory TTL cache — same semantics as GAS CacheService.
-// Swap this module for a Firestore implementation when deploying to Cloud Run.
-const store = new Map();
-
-function getCache(key) {
-  const entry = store.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) { store.delete(key); return null; }
-  return JSON.parse(JSON.stringify(entry.data)); // return a copy, not a reference
+async function getCache(key) {
+  try {
+    const doc = await db.collection('cache').doc(key).get();
+    if (!doc.exists) return null;
+    const { data, expiresAt } = doc.data();
+    if (Date.now() > expiresAt) {
+      await db.collection('cache').doc(key).delete();
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.error('Cache read error:', e.message);
+    return null;
+  }
 }
 
-function setCache(key, data, ttlSeconds = CACHE_SECONDS) {
-  store.set(key, { data, expiresAt: Date.now() + ttlSeconds * 1000 });
+async function setCache(key, data, ttlSeconds = CACHE_SECONDS) {
+  try {
+    await db.collection('cache').doc(key).set({
+      data,
+      expiresAt: Date.now() + ttlSeconds * 1000,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('Cache write error:', e.message);
+  }
 }
 
-function deleteCache(key) {
-  store.delete(key);
+async function deleteCache(key) {
+  try {
+    await db.collection('cache').doc(key).delete();
+  } catch (e) {
+    console.error('Cache delete error:', e.message);
+  }
 }
 
 module.exports = { getCache, setCache, deleteCache };

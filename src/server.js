@@ -5,7 +5,7 @@ const path    = require('path');
 const { CLIENTS } = require('./config');
 const { getYearView, getMonthData, getPipelineData, forceRefreshYearView, forceRefreshPipelineData, refreshAllCaches } = require('./builders');
 const { getProjections, saveProjection } = require('./projections');
-const { deleteCache } = require('./cache');
+const { getCache, setCache, deleteCache } = require('./cache');
 
 const app = express();
 app.use(express.json());
@@ -54,12 +54,15 @@ app.post('/api/projections', async (req, res) => {
     const { clientIndex, taskId, taskName, projectedHours, targetMonth } = req.body;
     const idx = parseInt(clientIndex, 10);
     await saveProjection(idx, taskId, taskName, projectedHours, targetMonth);
-    // Bust affected month cache — same logic as GAS saveProjection
+    // Bust affected month cache and the top-level overview cache
     const client  = CLIENTS[idx];
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
-    await Promise.all(budgets.map(b =>
-      targetMonth ? deleteCache(`month_${idx}_${b || 'all'}_${targetMonth}`) : Promise.resolve()
-    ));
+    await Promise.all([
+      ...budgets.map(b =>
+        targetMonth ? deleteCache(`month_${idx}_${b || 'all'}_${targetMonth}`) : Promise.resolve()
+      ),
+      deleteCache('overview_Jan 26'),
+    ]);
     res.json({ ok: true });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
@@ -68,6 +71,11 @@ app.post('/api/projections', async (req, res) => {
 app.get('/api/overview', async (req, res) => {
   try {
     const { yearStart = 'Jan 26' } = req.query;
+    const cacheKey = `overview_${yearStart}`;
+
+    const cached = await getCache(cacheKey);
+    if (cached) { cached.fromCache = true; return res.json(cached); }
+
     const results = await Promise.all(CLIENTS.map(async (client, idx) => {
       try {
         const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
@@ -78,7 +86,10 @@ app.get('/api/overview', async (req, res) => {
         return { idx, name: client.name, budgets: budgets.map((b, i) => ({ budget: b, year: yearResults[i] })), pipeline };
       } catch (e) { return { idx, name: client.name, error: e.message }; }
     }));
-    res.json({ ok: true, clients: results });
+
+    const response = { ok: true, clients: results, cachedAt: new Date().toISOString() };
+    await setCache(cacheKey, response);
+    res.json(response);
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 

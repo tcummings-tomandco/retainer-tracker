@@ -232,6 +232,25 @@ async function refreshAllCaches() {
     } catch (e) { console.log(`✗ Pipeline ${client.name}: ${e}`); }
   }
 
+  // Build and cache the assembled overview (re-uses already-warmed per-client caches)
+  for (const ys of ['Jan 26']) {
+    try {
+      const overviewKey = `overview_${ys}`;
+      await deleteCache(overviewKey);
+      const results = await Promise.all(CLIENTS.map(async (client, idx) => {
+        try {
+          const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
+          const yearResults = await Promise.all(budgets.map(b => getYearView(idx, b, ys)));
+          const pipeline    = await getPipelineData(idx);
+          return { idx, name: client.name, budgets: budgets.map((b, i) => ({ budget: b, year: yearResults[i] })), pipeline };
+        } catch (e) { return { idx, name: client.name, error: e.message }; }
+      }));
+      const overviewData = { ok: true, clients: results, cachedAt: new Date().toISOString() };
+      await setCache(overviewKey, overviewData);
+      console.log(`✓ Overview ${ys}`);
+    } catch (e) { console.log(`✗ Overview: ${e}`); }
+  }
+
   console.log('Done.');
 }
 

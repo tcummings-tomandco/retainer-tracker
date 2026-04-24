@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Management — Retainer Tracker</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f0f4f8; --surface: #ffffff; --border: #e2e8f0;
+    --text: #1e293b; --muted: #64748b;
+    --blue: #3b82f6; --red: #ef4444; --green: #10b981; --radius: 10px;
+  }
+  body { font-family: system-ui,-apple-system,sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Header ─────────────────────────────────────────────── */
+  .header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  }
+  .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
+  .logo-icon { width: 32px; height: 32px; background: var(--blue); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #fff; }
+  .logo-text { font-weight: 700; font-size: 15px; }
+  .logo-sub  { font-size: 11px; color: var(--muted); }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .user-email { font-size: 11px; color: var(--muted); }
+  .btn-sm { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; cursor: pointer; }
+  .btn-sm:hover { background: var(--bg); }
+
+  /* ── Page body ───────────────────────────────────────────── */
+  .page { padding: 32px; max-width: 1200px; margin: 0 auto; }
+  .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 28px; }
+  .page-title { font-size: 28px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+  .page-title::before { content: '·'; color: var(--blue); }
+  .page-subtitle { font-size: 13px; color: var(--muted); margin-top: 4px; border-left: 3px solid var(--blue); padding-left: 10px; }
+  .btn-primary { padding: 9px 18px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .btn-primary:hover { background: #2563eb; }
+
+  /* ── Controls bar ────────────────────────────────────────── */
+  .controls-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .search-wrap { flex: 1; min-width: 200px; position: relative; }
+  .search-wrap input {
+    width: 100%; padding: 8px 14px 8px 36px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; color: var(--text); background: var(--surface);
+    outline: none;
+  }
+  .search-wrap input:focus { border-color: var(--blue); }
+  .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px; pointer-events: none; }
+  .filter-sel { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: var(--surface); color: var(--text); cursor: pointer; outline: none; }
+
+  /* ── Table ───────────────────────────────────────────────── */
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    padding: 11px 16px; text-align: left; font-size: 11px; font-weight: 600;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    border-bottom: 1px solid var(--border); background: #f8fafc;
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  th:hover { color: var(--text); }
+  td { padding: 13px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f8fafc; }
+
+  .role-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;
+  }
+  .role-admin  { background: #dbeafe; color: #1d4ed8; }
+  .role-client { background: #f1f5f9; color: #475569; }
+  .role-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .dot-admin  { background: #2563eb; }
+  .dot-client { background: #94a3b8; }
+
+  .email-cell { font-weight: 500; }
+  .client-cell { color: var(--muted); font-size: 12px; }
+  .date-cell { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+  .actions { display: flex; gap: 6px; }
+  .action-btn {
+    padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); cursor: pointer; font-size: 12px; color: var(--muted);
+    display: flex; align-items: center; gap: 4px; white-space: nowrap;
+  }
+  .action-btn:hover { background: var(--bg); color: var(--text); }
+  .action-btn.danger:hover { background: #fef2f2; color: var(--red); border-color: #fca5a5; }
+  .action-btn.invite:hover { background: #f0fdf4; color: var(--green); border-color: #86efac; }
+
+  .empty-state { padding: 48px; text-align: center; color: var(--muted); }
+  .empty-icon { font-size: 32px; margin-bottom: 12px; }
+
+  /* ── Modal ───────────────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.35);
+    display: none; align-items: center; justify-content: center;
+    z-index: 200; padding: 16px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface); border-radius: 14px;
+    padding: 28px; width: 100%; max-width: 480px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.18);
+  }
+  .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .modal-subtitle { font-size: 13px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 7px; text-transform: uppercase; letter-spacing: .5px; }
+  .field label span { color: var(--red); }
+  .field input, .field select {
+    width: 100%; padding: 10px 13px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 14px; color: var(--text); background: var(--surface);
+    outline: none; transition: border-color .15s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--blue); }
+  .field-hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+  .btn-cancel { padding: 9px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; cursor: pointer; }
+  .btn-cancel:hover { background: var(--bg); }
+  .btn-create { padding: 9px 20px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-create:hover { background: #2563eb; }
+  .btn-create:disabled { background: #93c5fd; cursor: not-allowed; }
+  .modal-error { margin-top: 14px; padding: 10px 13px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; color: var(--red); font-size: 13px; display: none; }
+
+  /* ── Invite link modal ───────────────────────────────────── */
+  .invite-box {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; font-size: 12px; word-break: break-all; color: var(--muted);
+    margin-bottom: 14px; max-height: 80px; overflow-y: auto;
+  }
+  .copy-success { color: var(--green); font-size: 12px; margin-top: 6px; display: none; }
+
+  /* ── Toast ───────────────────────────────────────────────── */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #1e293b; color: #fff; padding: 10px 20px; border-radius: 8px;
+    font-size: 13px; font-weight: 500; z-index: 300; opacity: 0;
+    transition: opacity .2s; pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ── Spinner ─────────────────────────────────────────────── */
+  .spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; margin: 48px auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <a href="/" class="logo">
+    <div class="logo-icon">R</div>
+    <div>
+      <div class="logo-text">Retainer Tracker</div>
+      <div class="logo-sub">User Management</div>
+    </div>
+  </a>
+  <div class="header-right">
+    <span class="user-email" id="userEmail"></span>
+    <button class="btn-sm" onclick="signOut()">Sign out</button>
+  </div>
+</div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">User Management</div>
+      <div class="page-subtitle">Manage user accounts and permissions</div>
+    </div>
+    <button class="btn-primary" onclick="openAddModal()">
+      <span style="font-size:16px;line-height:1">＋</span> Add User
+    </button>
+  </div>
+
+  <div class="controls-bar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="searchInput" placeholder="Search by email…" oninput="filterTable()">
+    </div>
+    <select class="filter-sel" id="roleFilter" onchange="filterTable()">
+      <option value="">All Roles</option>
+      <option value="admin">Admin</option>
+      <option value="client">Client</option>
+    </select>
+    <select class="filter-sel" id="clientFilter" onchange="filterTable()">
+      <option value="">All Clients</option>
+    </select>
+  </div>
+
+  <div class="table-wrap">
+    <div id="tableBody"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- Add / Edit modal -->
+<div class="modal-overlay" id="userModal">
+  <div class="modal">
+    <div class="modal-title" id="modalTitle">Add User</div>
+    <div class="modal-subtitle" id="modalSubtitle">Add a new user. They will receive a password setup link to access the tracker.</div>
+    <div class="field">
+      <label for="mEmail">Email <span>*</span></label>
+      <input type="email" id="mEmail" placeholder="user@example.com" autocomplete="off">
+      <div class="field-hint">The user will log in with this email address.</div>
+    </div>
+    <div class="field">
+      <label for="mRole">Role <span>*</span></label>
+      <select id="mRole" onchange="onRoleChange()">
+        <option value="client">Client</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="field" id="clientField">
+      <label for="mClient">Client <span>*</span></label>
+      <select id="mClient">
+        <option value="">Select a client…</option>
+      </select>
+    </div>
+    <div class="modal-error" id="modalError"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal('userModal')">Cancel</button>
+      <button class="btn-create" id="saveBtn" onclick="saveUser()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Invite link modal -->
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal">
+    <div class="modal-title">Invite Link</div>
+    <div class="modal-subtitle">Share this link with the user. It lets them set their password and log in. The link expires after a few hours — you can generate a new one any time.</div>
+    <div class="invite-box" id="inviteLink">Generating…</div>
+    <div class="copy-success" id="copySuccess">✓ Copied to clipboard</div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal('inviteModal')">Close</button>
+      <button class="btn-create" onclick="copyInviteLink()">Copy Link</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script>
+// ── State ────────────────────────────────────────────────────
+var firebaseUser = null;
+var authToken    = null;
+var clients      = [];
+var users        = [];
+var editingUid   = null; // null = add mode, uid string = edit mode
+
+// ── Bootstrap ────────────────────────────────────────────────
+fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg) {
+  firebase.initializeApp(cfg);
+  firebase.auth().onAuthStateChanged(async function(user) {
+    if (!user) { window.location.replace('/login.html'); return; }
+    firebaseUser = user;
+    authToken    = await user.getIdToken();
+    document.getElementById('userEmail').textContent = user.email;
+
+    // Verify admin access
+    var me = await api('GET', '/api/me');
+    if (!me.ok || me.user.role !== 'admin') {
+      window.location.replace('/');
+      return;
+    }
+    // Load clients list for the dropdown
+    var cl = await api('GET', '/api/clients');
+    if (cl && Array.isArray(cl)) {
+      clients = cl;
+      populateClientDropdowns();
+    }
+    loadUsers();
+  });
+});
+
+// ── API helper ───────────────────────────────────────────────
+async function api(method, url, body) {
+  if (firebaseUser) authToken = await firebaseUser.getIdToken();
+  var opts = {
+    method: method,
+    headers: { 'Authorization': 'Bearer ' + authToken }
+  };
+  if (body) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  var r = await fetch(url, opts);
+  return r.json();
+}
+
+// ── Load & render users ──────────────────────────────────────
+async function loadUsers() {
+  var data = await api('GET', '/api/admin/users');
+  if (!data.ok) { showTableError(data.error); return; }
+  users = data.users || [];
+  renderTable(users);
+}
+
+function renderTable(rows) {
+  if (!rows.length) {
+    document.getElementById('tableBody').innerHTML =
+      '<div class="empty-state"><div class="empty-icon">👤</div>No users yet. Click "Add User" to get started.</div>';
+    return;
+  }
+  var html = '<table><thead><tr>'
+    + '<th>Email</th><th>Role</th><th>Client</th><th>Created</th><th>Actions</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach(function(u) {
+    var clientName = u.clientIndex != null && clients[u.clientIndex]
+      ? clients[u.clientIndex].name : '—';
+    var created = u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '—';
+    var roleHtml = u.role === 'admin'
+      ? '<span class="role-badge role-admin"><span class="role-dot dot-admin"></span>admin</span>'
+      : '<span class="role-badge role-client"><span class="role-dot dot-client"></span>client</span>';
+
+    html += '<tr>'
+      + '<td class="email-cell">' + esc(u.email) + '</td>'
+      + '<td>' + roleHtml + '</td>'
+      + '<td class="client-cell">' + esc(clientName) + '</td>'
+      + '<td class="date-cell">' + created + '</td>'
+      + '<td><div class="actions">'
+      + '<button class="action-btn invite" onclick="generateInvite(\'' + u.uid + '\')">🔗 Invite link</button>'
+      + '<button class="action-btn" onclick="openEditModal(\'' + u.uid + '\')">✏️ Edit</button>'
+      + '<button class="action-btn danger" onclick="confirmDelete(\'' + u.uid + '\', \'' + esc(u.email) + '\')">🗑 Delete</button>'
+      + '</div></td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('tableBody').innerHTML = html;
+}
+
+function showTableError(msg) {
+  document.getElementById('tableBody').innerHTML =
+    '<div class="empty-state" style="color:var(--red)">⚠ ' + esc(msg) + '</div>';
+}
+
+// ── Filtering ────────────────────────────────────────────────
+function filterTable() {
+  var search = document.getElementById('searchInput').value.toLowerCase();
+  var role   = document.getElementById('roleFilter').value;
+  var ci     = document.getElementById('clientFilter').value;
+  var filtered = users.filter(function(u) {
+    if (search && !u.email.toLowerCase().includes(search)) return false;
+    if (role && u.role !== role) return false;
+    if (ci !== '' && String(u.clientIndex) !== ci) return false;
+    return true;
+  });
+  renderTable(filtered);
+}
+
+// ── Client dropdowns ─────────────────────────────────────────
+function populateClientDropdowns() {
+  // Modal client select
+  var mClient = document.getElementById('mClient');
+  clients.forEach(function(c) {
+    var o = document.createElement('option');
+    o.value = c.index;
+    o.textContent = c.name;
+    mClient.appendChild(o);
+  });
+  // Filter dropdown
+  var cf = document.getElementById('clientFilter');
+  clients.forEach(function(c) {
+    var o = document.createElement('option');
+    o.value = c.index;
+    o.textContent = c.name;
+    cf.appendChild(o);
+  });
+}
+
+// ── Add / Edit modal ─────────────────────────────────────────
+function openAddModal() {
+  editingUid = null;
+  document.getElementById('modalTitle').textContent    = 'Add User';
+  document.getElementById('modalSubtitle').textContent = 'Add a new user. They will receive a password setup link to access the tracker.';
+  document.getElementById('mEmail').value              = '';
+  document.getElementById('mEmail').disabled           = false;
+  document.getElementById('mRole').value               = 'client';
+  document.getElementById('mClient').value             = '';
+  document.getElementById('clientField').style.display = 'block';
+  document.getElementById('modalError').style.display  = 'none';
+  document.getElementById('saveBtn').textContent        = 'Create';
+  document.getElementById('userModal').classList.add('open');
+  setTimeout(function(){ document.getElementById('mEmail').focus(); }, 50);
+}
+
+function openEditModal(uid) {
+  var u = users.find(function(x){ return x.uid === uid; });
+  if (!u) return;
+  editingUid = uid;
+  document.getElementById('modalTitle').textContent    = 'Edit User';
+  document.getElementById('modalSubtitle').textContent = 'Update this user\'s role or client assignment.';
+  document.getElementById('mEmail').value              = u.email;
+  document.getElementById('mEmail').disabled           = true;
+  document.getElementById('mRole').value               = u.role;
+  document.getElementById('mClient').value             = u.clientIndex != null ? u.clientIndex : '';
+  document.getElementById('clientField').style.display = u.role === 'client' ? 'block' : 'none';
+  document.getElementById('modalError').style.display  = 'none';
+  document.getElementById('saveBtn').textContent        = 'Save';
+  document.getElementById('userModal').classList.add('open');
+}
+
+function onRoleChange() {
+  var role = document.getElementById('mRole').value;
+  document.getElementById('clientField').style.display = role === 'client' ? 'block' : 'none';
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+async function saveUser() {
+  var email  = document.getElementById('mEmail').value.trim();
+  var role   = document.getElementById('mRole').value;
+  var ci     = document.getElementById('mClient').value;
+  var errEl  = document.getElementById('modalError');
+  var saveBtn = document.getElementById('saveBtn');
+
+  errEl.style.display = 'none';
+
+  if (!editingUid && !email) { showModalError('Email is required.'); return; }
+  if (!role) { showModalError('Please select a role.'); return; }
+  if (role === 'client' && ci === '') { showModalError('Please select a client.'); return; }
+
+  saveBtn.disabled    = true;
+  saveBtn.textContent = editingUid ? 'Saving…' : 'Creating…';
+
+  var body = { role: role, clientIndex: role === 'client' ? parseInt(ci, 10) : null };
+  if (!editingUid) body.email = email;
+
+  var method = editingUid ? 'PUT'  : 'POST';
+  var url    = editingUid ? '/api/admin/users/' + editingUid : '/api/admin/users';
+  var data   = await api(method, url, body);
+
+  saveBtn.disabled    = false;
+  saveBtn.textContent = editingUid ? 'Save' : 'Create';
+
+  if (!data.ok) { showModalError(data.error || 'Something went wrong.'); return; }
+
+  closeModal('userModal');
+  showToast(editingUid ? 'User updated.' : 'User created.');
+  await loadUsers();
+
+  // For new users, auto-generate and show the invite link
+  if (!editingUid && data.user) {
+    await generateInvite(data.user.uid);
+  }
+}
+
+function showModalError(msg) {
+  var el = document.getElementById('modalError');
+  el.textContent    = msg;
+  el.style.display  = 'block';
+}
+
+// ── Delete ───────────────────────────────────────────────────
+async function confirmDelete(uid, email) {
+  if (!confirm('Delete ' + email + '?\nThis cannot be undone.')) return;
+  var data = await api('DELETE', '/api/admin/users/' + uid);
+  if (!data.ok) { showToast('Error: ' + data.error); return; }
+  showToast('User deleted.');
+  await loadUsers();
+}
+
+// ── Invite link ───────────────────────────────────────────────
+async function generateInvite(uid) {
+  document.getElementById('inviteLink').textContent    = 'Generating…';
+  document.getElementById('copySuccess').style.display = 'none';
+  document.getElementById('inviteModal').classList.add('open');
+  var data = await api('POST', '/api/admin/users/' + uid + '/invite');
+  if (!data.ok) {
+    document.getElementById('inviteLink').textContent = 'Error: ' + data.error;
+    return;
+  }
+  document.getElementById('inviteLink').textContent = data.link;
+}
+
+function copyInviteLink() {
+  var link = document.getElementById('inviteLink').textContent;
+  navigator.clipboard.writeText(link).then(function() {
+    document.getElementById('copySuccess').style.display = 'block';
+  });
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+var toastTimer;
+function showToast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2500);
+}
+
+function signOut() {
+  firebase.auth().signOut().then(function(){ window.location.replace('/login.html'); });
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(function(el) {
+  el.addEventListener('click', function(e) {
+    if (e.target === el) el.classList.remove('open');
+  });
+});
+</script>
+</body>
+</html>

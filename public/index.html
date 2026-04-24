@@ -229,6 +229,14 @@
   .cap-over    { background:var(--red); }
   .cap-warn    { background:var(--amber); }
   .cap-ok      { background:var(--green); }
+
+  /* ── Auth ───────────────────────────────────────────────── */
+  .user-badge   { display:flex; align-items:center; gap:8px; }
+  .user-email   { font-size:11px; color:var(--muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .btn-signout  { padding:5px 12px; font-size:11px; background:transparent; border:1px solid var(--border); color:var(--muted); border-radius:6px; cursor:pointer; }
+  .btn-signout:hover { background:var(--bg); color:var(--text); }
+  .btn-users    { padding:5px 12px; font-size:11px; background:transparent; border:1px solid var(--border); color:var(--blue); border-radius:6px; cursor:pointer; text-decoration:none; }
+  .btn-users:hover { background:#eff6ff; }
 </style>
 </head>
 <body>
@@ -259,6 +267,11 @@
     </div>
     <button onclick="forceRefresh()" id="refreshBtn">↻ Refresh</button>
     <span id="cacheLabel" style="font-size:11px;color:#475569"></span>
+    <a href="/admin.html" class="btn-users" id="adminLink" style="display:none">Users</a>
+    <div class="user-badge">
+      <span class="user-email" id="userEmail"></span>
+      <button class="btn-signout" onclick="signOut()">Sign out</button>
+    </div>
   </div>
 </div>
 
@@ -267,6 +280,9 @@
 <div class="tpl-bar" id="tplBar" style="display:none"></div>
 
 <script>
+// ── Auth state ────────────────────────────────────────────────
+var firebaseUser = null, currentUser = null, isReadOnly = false;
+
 // ── State ──────────────────────────────────────────────────────
 var clients = [], selIdx = 0, budget = null, yearStart = 'Jan 26';
 var yearData = null, activeMonth = null;
@@ -297,8 +313,9 @@ var MONTHS_LIST = [
   'Jul 26','Aug 26','Sep 26','Oct 26','Nov 26','Dec 26',
 ];
 
-// ── API wrapper → same interface as google.script.run ──────────
+// ── API wrapper ────────────────────────────────────────────────
 var API_MAP = {
+  getMe:                    function()               { return ['GET',  '/api/me',               null]; },
   getClients:               function()               { return ['GET',  '/api/clients',          null]; },
   getOverview:              function(ys)             { return ['GET',  '/api/overview',         { yearStart:ys }]; },
   getYearView:              function(ci, b, ys)      { return ['GET',  '/api/year',             { client:ci, budget:b, yearStart:ys }]; },
@@ -310,44 +327,78 @@ var API_MAP = {
   forceRefreshYearView:     function(ci, b, ys)      { return ['POST', '/api/refresh/year',     { client:ci, budget:b, yearStart:ys }]; },
 };
 
-function run(fn) {
-  var args = Array.prototype.slice.call(arguments, 1);
-  return new Promise(function(resolve, reject) {
-    var mapping = API_MAP[fn];
-    if (!mapping) { reject(new Error('Unknown function: ' + fn)); return; }
-    var spec   = mapping.apply(null, args);
-    var method = spec[0], path = spec[1], params = spec[2];
-    var url = path, opts = {};
-    if (method === 'GET' && params) {
-      var qs = Object.keys(params)
-        .filter(function(k){ return params[k] != null; })
-        .map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); })
-        .join('&');
-      if (qs) url += '?' + qs;
-    } else if (method === 'POST') {
-      opts.method  = 'POST';
-      opts.headers = { 'Content-Type': 'application/json' };
-      opts.body    = JSON.stringify(params || {});
-    }
-    fetch(url, opts)
-      .then(function(r){ return r.json(); })
-      .then(function(result) {
-        if (result && result.ok === false) reject(new Error(result.error || 'Server error'));
-        else resolve(result);
-      })
-      .catch(function(e){ reject(e); });
-  });
+async function run(fn) {
+  var args    = Array.prototype.slice.call(arguments, 1);
+  var mapping = API_MAP[fn];
+  if (!mapping) throw new Error('Unknown function: ' + fn);
+  var spec   = mapping.apply(null, args);
+  var method = spec[0], path = spec[1], params = spec[2];
+  var url = path, opts = { headers: {} };
+
+  // Attach a fresh Firebase ID token (auto-refreshes if near expiry)
+  if (firebaseUser) {
+    opts.headers['Authorization'] = 'Bearer ' + (await firebaseUser.getIdToken());
+  }
+
+  if (method === 'GET' && params) {
+    var qs = Object.keys(params)
+      .filter(function(k){ return params[k] != null; })
+      .map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); })
+      .join('&');
+    if (qs) url += '?' + qs;
+  } else if (method === 'POST') {
+    opts.method  = 'POST';
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body    = JSON.stringify(params || {});
+  }
+
+  var r      = await fetch(url, opts);
+  var result = await r.json();
+  if (result && result.ok === false) throw new Error(result.error || 'Server error');
+  return result;
 }
 
-// ── Init ───────────────────────────────────────────────────────
-run('getClients').then(function(data) {
-  clients = data;
-  var sel = document.getElementById('clientSel');
-  sel.innerHTML = clients.map(function(c, i) {
-    return '<option value="' + i + '">' + c.name + '</option>';
-  }).join('');
-  onClientChange();
-}).catch(function(e) { showError('Failed to load clients: ' + e.message); });
+// ── Sign out ───────────────────────────────────────────────────
+function signOut() {
+  firebase.auth().signOut().then(function() { window.location.replace('/login.html'); });
+}
+
+// ── Init (runs after Firebase Auth confirms the user) ──────────
+function initApp() {
+  run('getMe').then(function(data) {
+    currentUser = data.user;
+    document.getElementById('userEmail').textContent = currentUser.email;
+
+    // Role-based UI
+    if (currentUser.role === 'admin') {
+      document.getElementById('adminLink').style.display = 'inline-flex';
+    } else {
+      // Client users: hide Overview tab, hide Refresh button, read-only mode
+      document.getElementById('tabOverview').style.display = 'none';
+      document.getElementById('refreshBtn').style.display  = 'none';
+      isReadOnly = true;
+      // Default to balance tab (not overview)
+      if (activeView === 'overview') activeView = 'balance';
+    }
+
+    // Load clients list
+    return run('getClients');
+  }).then(function(data) {
+    clients = data;
+    var sel = document.getElementById('clientSel');
+    sel.innerHTML = clients.map(function(c) {
+      return '<option value="' + c.index + '">' + c.name + '</option>';
+    }).join('');
+
+    // For client-role users, lock the selector to their assigned client
+    if (currentUser && currentUser.role === 'client') {
+      sel.value    = currentUser.clientIndex;
+      sel.disabled = true;
+    }
+
+    onClientChange();
+  }).catch(function(e) { showError('Failed to load: ' + e.message); });
+}
 
 function onClientChange() {
   selIdx = parseInt(document.getElementById('clientSel').value, 10);
@@ -953,6 +1004,12 @@ function ganttTaskRow(t, months, projections, nowMonth) {
   var hrsHtml;
   if (t.quoteHours != null) {
     hrsHtml = '<span class="hrs-pill" style="margin-top:4px;display:inline-block">'+t.quoteHours+'h confirmed</span>';
+  } else if (isReadOnly) {
+    // Client-role users see a read-only estimate (or nothing if not set)
+    var pHrs = proj ? proj.projectedHours : null;
+    hrsHtml = pHrs
+      ? '<span class="hrs-pill" style="margin-top:4px;display:inline-block;background:#ede9fe;color:#6d28d9;border-color:#a78bfa">~'+pHrs+'h est.</span>'
+      : '';
   } else {
     var pHrs = proj ? proj.projectedHours : '';
     var pMo  = proj ? proj.targetMonth    : (t.dueMonth || '');
@@ -1472,6 +1529,25 @@ function forceRefresh() {
 function showError(msg) {
   document.getElementById('main').innerHTML = '<div class="state-msg" style="color:var(--red)">⚠ '+esc(msg)+'</div>';
 }
+</script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script>
+fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg) {
+  firebase.initializeApp(cfg);
+  firebase.auth().onAuthStateChanged(function(user) {
+    if (!user) {
+      window.location.replace('/login.html');
+      return;
+    }
+    firebaseUser = user;
+    initApp();
+  });
+}).catch(function(e) {
+  document.getElementById('main').innerHTML =
+    '<div class="state-msg" style="color:var(--red)">⚠ Failed to load app config: '+e.message+'</div>';
+});
 </script>
 </body>
 </html>

@@ -8,3 +8,12 @@ runConfig:
 env:
   - variable: CLICKUP_TEAM_ID
     value: "4617714"
+
+  - variable: FIREBASE_PROJECT_ID
+    value: "retainer-tracker-3eb71"
+
+  # Set FIREBASE_WEB_API_KEY and CRON_SECRET as plain env vars in the
+  # Firebase App Hosting console (Project Settings → App Hosting → your backend).
+  # FIREBASE_WEB_API_KEY  → your Firebase project's web API key
+  # CRON_SECRET           → a random string shared with the scheduled function
+  # APP_URL               → https://retainer-tracker--retainer-tracker-3eb71.europe-west4.hosted.app

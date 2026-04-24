@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign In — Retainer Tracker</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f0f4f8; --surface: #ffffff; --border: #e2e8f0;
+    --text: #1e293b; --muted: #64748b; --blue: #3b82f6; --red: #ef4444;
+  }
+  body {
+    font-family: system-ui,-apple-system,sans-serif;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 40px 44px; width: 100%; max-width: 420px;
+    box-shadow: 0 4px 32px rgba(0,0,0,.08);
+  }
+  .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+  .logo-icon {
+    width: 40px; height: 40px; background: var(--blue); border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 16px; color: #fff; flex-shrink: 0;
+  }
+  .logo-text { font-weight: 700; font-size: 17px; line-height: 1.2; }
+  .logo-sub  { font-size: 12px; color: var(--muted); }
+
+  h2 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .subtitle { font-size: 13px; color: var(--muted); margin-bottom: 28px; line-height: 1.5; }
+
+  .field { margin-bottom: 18px; }
+  label {
+    display: block; font-size: 11px; font-weight: 600; color: var(--muted);
+    margin-bottom: 7px; text-transform: uppercase; letter-spacing: .6px;
+  }
+  input {
+    width: 100%; padding: 11px 14px;
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; color: var(--text); background: var(--surface);
+    outline: none; transition: border-color .15s;
+  }
+  input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #3b82f620; }
+
+  .btn {
+    width: 100%; padding: 12px; background: var(--blue); color: #fff;
+    border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+    cursor: pointer; margin-top: 4px; transition: background .15s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn:hover   { background: #2563eb; }
+  .btn:disabled { background: #93c5fd; cursor: not-allowed; }
+
+  .error-msg {
+    margin-top: 16px; padding: 11px 14px;
+    background: #fef2f2; border: 1px solid #fca5a5;
+    border-radius: 8px; color: var(--red); font-size: 13px; display: none;
+  }
+
+  .footer { margin-top: 20px; text-align: center; font-size: 12px; color: var(--muted); }
+  .footer a { color: var(--blue); text-decoration: none; cursor: pointer; }
+  .footer a:hover { text-decoration: underline; }
+
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.4);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin .7s linear infinite; display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">R</div>
+    <div>
+      <div class="logo-text">Retainer Tracker</div>
+      <div class="logo-sub">by Tom &amp; Co</div>
+    </div>
+  </div>
+
+  <h2>Sign in</h2>
+  <p class="subtitle">Enter your email and password to access your retainer dashboard.</p>
+
+  <form id="loginForm">
+    <div class="field">
+      <label for="email">Email address</label>
+      <input type="email" id="email" placeholder="you@example.com" required autocomplete="email">
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password">
+    </div>
+    <button class="btn" type="submit" id="signInBtn">
+      <span class="spinner" id="spinner"></span>
+      <span id="btnText">Sign in</span>
+    </button>
+    <div class="error-msg" id="errorMsg"></div>
+  </form>
+
+  <div class="footer">
+    Forgotten your password? <a id="resetLink">Send reset email</a>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script>
+fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg) {
+  firebase.initializeApp(cfg);
+  var auth = firebase.auth();
+
+  // If already signed in redirect immediately
+  auth.onAuthStateChanged(function(user) {
+    if (user) window.location.replace('/');
+  });
+
+  document.getElementById('loginForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var email    = document.getElementById('email').value.trim();
+    var password = document.getElementById('password').value;
+    var btn      = document.getElementById('signInBtn');
+    var spinner  = document.getElementById('spinner');
+    var btnText  = document.getElementById('btnText');
+    var errEl    = document.getElementById('errorMsg');
+
+    errEl.style.display = 'none';
+    btn.disabled        = true;
+    spinner.style.display = 'block';
+    btnText.textContent = 'Signing in…';
+
+    try {
+      await auth.signInWithEmailAndPassword(email, password);
+      // onAuthStateChanged will handle the redirect
+    } catch (err) {
+      var msg;
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+        msg = 'Incorrect email or password.';
+      } else if (err.code === 'auth/too-many-requests') {
+        msg = 'Too many attempts. Please wait a few minutes and try again.';
+      } else if (err.code === 'auth/invalid-email') {
+        msg = 'Please enter a valid email address.';
+      } else {
+        msg = 'Sign in failed. Please try again.';
+      }
+      errEl.textContent    = msg;
+      errEl.style.display  = 'block';
+      btn.disabled         = false;
+      spinner.style.display = 'none';
+      btnText.textContent  = 'Sign in';
+    }
+  });
+
+  document.getElementById('resetLink').addEventListener('click', async function() {
+    var email = document.getElementById('email').value.trim();
+    if (!email) {
+      document.getElementById('email').focus();
+      document.getElementById('errorMsg').textContent = 'Enter your email address above first.';
+      document.getElementById('errorMsg').style.display = 'block';
+      return;
+    }
+    try {
+      await auth.sendPasswordResetEmail(email);
+      document.getElementById('errorMsg').style.display = 'none';
+      alert('Password reset email sent to ' + email + '. Check your inbox.');
+    } catch (err) {
+      document.getElementById('errorMsg').textContent = 'Could not send reset email. Please check the address and try again.';
+      document.getElementById('errorMsg').style.display = 'block';
+    }
+  });
+
+}).catch(function(err) {
+  document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444;font-family:system-ui">Failed to load app config: ' + err.message + '</div>';
+});
+</script>
+</body>
+</html>

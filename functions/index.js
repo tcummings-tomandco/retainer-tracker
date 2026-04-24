@@ -13,7 +13,10 @@ exports.refreshCaches = onSchedule({
   memory:          '256MiB',
 }, async (event) => {
   try {
-    const res  = await fetch(`${APP_URL}/api/cron/refresh`, { method: 'POST' });
+    const res  = await fetch(`${APP_URL}/api/cron/refresh`, {
+      method:  'POST',
+      headers: { 'X-Cron-Secret': process.env.CRON_SECRET || '' },
+    });
     const data = await res.json();
     logger.info('Cache refresh triggered:', data);
   } catch (e) {

@@ -44,12 +44,21 @@ async function deleteUser(uid) {
   ]);
 }
 
-// Generates a password-reset / first-login link for the given email.
-// The link redirects back to /login.html after the user sets their password.
+// Generates a clean invite link pointing to our own set-password page.
+// Firebase generates the link (to validate the email exists), we extract
+// the oobCode from it and build our own URL so clients never see
+// "firebaseapp.com" in the link they receive.
 async function getInviteLink(email) {
-  const appUrl = process.env.APP_URL
-    || 'https://retainer-tracker--retainer-tracker-3eb71.europe-west4.hosted.app';
-  return admin.auth().generatePasswordResetLink(email, { url: appUrl + '/login.html' });
+  const appUrl = (process.env.APP_URL
+    || 'https://retainer-tracker--retainer-tracker-3eb71.europe-west4.hosted.app')
+    .replace(/\/$/, '');
+
+  // Generate via Firebase (action URL is a no-op — we only need the oobCode)
+  const firebaseLink = await admin.auth().generatePasswordResetLink(email);
+  const oobCode      = new URL(firebaseLink).searchParams.get('oobCode');
+
+  // Return our own branded URL
+  return `${appUrl}/set-password.html?oobCode=${oobCode}`;
 }
 
 module.exports = { listUsers, createUser, updateUser, deleteUser, getInviteLink };

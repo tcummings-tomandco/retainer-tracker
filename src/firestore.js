@@ -5,7 +5,7 @@ const admin = require('firebase-admin');
 // and locally after: gcloud auth application-default login
 if (!admin.apps.length) {
   admin.initializeApp({
-    projectId: process.env.GOOGLE_CLOUD_PROJECT || 'retainer-tracker-492908',
+    projectId: process.env.GOOGLE_CLOUD_PROJECT || 'retainer-tracker-3eb71',
   });
 }
 

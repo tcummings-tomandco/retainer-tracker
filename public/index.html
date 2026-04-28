@@ -172,7 +172,7 @@
   .gantt-cell      { border-left:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--surface); vertical-align:middle; padding:4px 3px; }
   .gantt-cell.gantt-now-col { background:#fffbeb; border-left-color:#fcd34d; }
   .gantt-bar-cell  { padding:4px 3px; vertical-align:middle; }
-  .gantt-bar       { border-radius:5px; height:26px; display:flex; align-items:center; justify-content:center; padding:0 6px; font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; min-width:4px; }
+  .gantt-bar       { border-radius:5px; height:26px; display:flex; align-items:center; justify-content:center; padding:0 8px; font-size:clamp(8px,1.1vw,11px); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:4px; }
 
   /* Projected hours inputs */
   .proj-row    { display:flex; align-items:center; gap:5px; margin-top:4px; flex-wrap:wrap; }
@@ -1127,10 +1127,7 @@ function ganttTaskRow(t, months, projections, nowMonth) {
     }
     var span    = bc.end - bc.start;
     // Bar label: confirmed total or sum of allocations
-    var allocTotal = s.allocations.reduce(function(sum,a){ return sum+(a.hours||0); }, 0);
-    var barLbl  = s.confirmedTotal != null
-      ? s.confirmedTotal+'h'
-      : (allocTotal ? '~'+allocTotal+'h' : '');
+    var barLbl = t.name || '';
     var mlPct   = (bc.startFrac / span * 100).toFixed(1);
     var mrPct   = ((1 - bc.dueFrac) / span * 100).toFixed(1);
     monthTds += '<td class="gantt-bar-cell'+(months[bc.start]===nowMonth?' gantt-now-col':'')+'" colspan="'+span+'">'

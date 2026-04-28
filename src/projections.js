@@ -30,9 +30,15 @@ function normalise(raw) {
   return out;
 }
 
-async function getProjections(clientIndex) {
+// Doc key includes budget so Retail and Trade projections are stored separately.
+// Clients without a split budget use 'all' (same behaviour as before).
+function projDocKey(clientIndex, budget) {
+  return `${clientIndex}_${budget || 'all'}`;
+}
+
+async function getProjections(clientIndex, budget) {
   try {
-    const doc = await db.collection('projections').doc(String(clientIndex)).get();
+    const doc = await db.collection('projections').doc(projDocKey(clientIndex, budget)).get();
     return doc.exists ? normalise(doc.data() || {}) : {};
   } catch (e) {
     console.error('Projections read error:', e.message);
@@ -42,9 +48,9 @@ async function getProjections(clientIndex) {
 
 // allocations — array of { hours, month } or null/[] to clear the entry.
 // confirmedTotal — the confirmed quote total (number) or null for estimates.
-async function saveProjection(clientIndex, taskId, taskName, confirmedTotal, allocations) {
+async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTotal, allocations) {
   try {
-    const ref  = db.collection('projections').doc(String(clientIndex));
+    const ref  = db.collection('projections').doc(projDocKey(clientIndex, budget));
     const doc  = await ref.get();
     const data = doc.exists ? (doc.data() || {}) : {};
 

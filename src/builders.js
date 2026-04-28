@@ -114,7 +114,7 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
     if (isCurrent) {
       const seen = {};
       tasks.forEach(t => { seen[t.id] = true; });
-      const projData = externalProjections || await getProjections(clientIndex);
+      const projData = externalProjections || await getProjections(clientIndex, budget);
       for (const pid in projData) {
         const p = projData[pid];
         if (!p.allocations) continue;
@@ -195,7 +195,7 @@ async function buildPipelineData(clientIndex) {
 
 async function getYearView(clientIndex, budget, yearStart) {
   const cacheKey = `year_${clientIndex}_${budget || 'all'}_${yearStart || 'Jan 26'}`;
-  const proj = await getProjections(clientIndex);
+  const proj = await getProjections(clientIndex, budget);
 
   const cached = await getCache(cacheKey);
   if (cached) {
@@ -237,7 +237,7 @@ async function forceRefreshYearView(clientIndex, budget, yearStart) {
   const cacheKey = `year_${clientIndex}_${budget || 'all'}_${ys}`;
   await deleteCache(cacheKey);
 
-  const proj   = await getProjections(clientIndex);
+  const proj   = await getProjections(clientIndex, budget);
   const result = await buildYearView(clientIndex, budget, ys);
   result.cachedAt = new Date().toISOString();
 
@@ -272,12 +272,12 @@ async function refreshAllCaches() {
   const tid = teamId();
 
   for (let idx = 0; idx < CLIENTS.length; idx++) {
-    const client = CLIENTS[idx];
-    const clientProjections = await getProjections(idx);
+    const client  = CLIENTS[idx];
     const paygCache = await buildPaygDiscoveryCache(tid, client.spaceId);
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
 
     for (const budget of budgets) {
+      const clientProjections = await getProjections(idx, budget);
       for (const ys of ['Jan 26']) {
         try {
           const yrKey = `year_${idx}_${budget || 'all'}_${ys}`;

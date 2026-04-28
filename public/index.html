@@ -348,8 +348,8 @@ var API_MAP = {
   getYearView:              function(ci, b, ys)      { return ['GET',  '/api/year',             { client:ci, budget:b, yearStart:ys }]; },
   getMonthData:             function(ci, b, m)       { return ['GET',  '/api/month',            { client:ci, budget:b, month:m }]; },
   getPipelineData:          function(ci)             { return ['GET',  '/api/pipeline',         { client:ci }]; },
-  getProjections:           function(ci)             { return ['GET',  '/api/projections',      { client:ci }]; },
-  saveProjection:           function(ci,tid,tn,ct,allocs){ return ['POST', '/api/projections',  { clientIndex:ci, taskId:tid, taskName:tn, confirmedTotal:ct, allocations:allocs }]; },
+  getProjections:           function(ci)             { return ['GET',  '/api/projections',      { client:ci, budget:budget }]; },
+  saveProjection:           function(ci,tid,tn,ct,allocs){ return ['POST', '/api/projections',  { clientIndex:ci, budget:budget, taskId:tid, taskName:tn, confirmedTotal:ct, allocations:allocs }]; },
   forceRefreshPipelineData: function(ci)             { return ['POST', '/api/refresh/pipeline', { client:ci }]; },
   forceRefreshYearView:     function(ci, b, ys)      { return ['POST', '/api/refresh/year',     { client:ci, budget:b, yearStart:ys }]; },
 };

@@ -86,9 +86,9 @@ app.get('/api/pipeline', async (req, res) => {
 // ── Projections ───────────────────────────────────────────────
 app.get('/api/projections', async (req, res) => {
   try {
-    const { client = 0 } = req.query;
+    const { client = 0, budget } = req.query;
     if (!assertClientAccess(req, res, client)) return;
-    const projections = await getProjections(client);
+    const projections = await getProjections(client, budget || null);
     res.json({ ok: true, projections });
   } catch (e) { res.json({ ok: false, error: e.message, projections: {} }); }
 });
@@ -97,9 +97,9 @@ app.get('/api/projections', async (req, res) => {
 // Body: { clientIndex, taskId, taskName, confirmedTotal, allocations: [{hours, month}] }
 app.post('/api/projections', requireAdmin, async (req, res) => {
   try {
-    const { clientIndex, taskId, taskName, confirmedTotal, allocations } = req.body;
+    const { clientIndex, budget, taskId, taskName, confirmedTotal, allocations } = req.body;
     const idx     = parseInt(clientIndex, 10);
-    await saveProjection(idx, taskId, taskName, confirmedTotal, allocations);
+    await saveProjection(idx, budget || null, taskId, taskName, confirmedTotal, allocations);
     const client  = CLIENTS[idx];
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
     // Bust only the month drilldown caches for affected months.

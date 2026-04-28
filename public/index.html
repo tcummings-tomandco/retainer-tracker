@@ -1014,19 +1014,20 @@ function renderRoadmap(tasks, projections) {
   });
 
   // KPIs
-  var withDates  = tasks.filter(function(t){ return t.startMonth||t.dueMonth; }).length;
-  var projIds    = Object.keys(projections);
-  var allocHrs   = projIds.reduce(function(s,k){
+  var withDates      = tasks.filter(function(t){ return t.startMonth||t.dueMonth; }).length;
+  var confirmedCount = tasks.filter(function(t){ return t.quoteHours != null; }).length;
+  var projIds        = Object.keys(projections);
+  var allocatedCount = projIds.length;
+  var allocHrs       = projIds.reduce(function(s,k){
     var p = projections[k];
     return s + (p.allocations ? p.allocations.reduce(function(sa,a){ return sa+(a.hours||0); },0) : 0);
   }, 0);
-  var confirmedCount = projIds.filter(function(k){ return projections[k].confirmedTotal != null; }).length;
   document.getElementById('kpiStrip').innerHTML = [
     { label:'On Roadmap',         val:tasks.length,               sub:'active tasks',          col:'#64748b' },
-    { label:'Scheduled',          val:withDates,                  sub:'have ClickUp dates',    col:'#34d399' },
-    { label:'Allocated Tasks',    val:projIds.length,             sub:'months assigned',       col:'#a78bfa' },
-    { label:'Confirmed Quotes',   val:confirmedCount,             sub:'with confirmed hours',  col:'#10b981' },
+    { label:'Confirmed Quotes',   val:confirmedCount,             sub:'quote given in ClickUp', col:'#10b981' },
+    { label:'Allocated Tasks',    val:allocatedCount,             sub:'months assigned',       col:'#a78bfa' },
     { label:'Allocated Hours',    val:Math.round(allocHrs)+'h',  sub:'across all months',     col:'#818cf8' },
+    { label:'Unallocated Quotes', val:confirmedCount - projIds.filter(function(k){ return projections[k].confirmedTotal != null; }).length, sub:'need months set', col:'#f59e0b' },
   ].map(function(k){
     return '<div class="kpi"><div class="kpi-label">'+k.label+'</div>'
       +'<div class="kpi-value" style="color:'+k.col+'">'+k.val+'</div>'

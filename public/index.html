@@ -88,8 +88,9 @@
   .p-support   { background:#ffedd5; color:#c2410c;  border-color:#fdba74; }
   .p-payg      { background:#f1f5f9; color:#475569;  border-color:#cbd5e1; }
   .p-project   { background:#e0e7ff; color:#4338ca;  border-color:#a5b4fc; }
-  .p-forecast  { background:#dbeafe; color:#2563eb;  border-color:#93c5fd; font-style:italic; }
-  .p-projected { background:#ede9fe; color:#6d28d9;  border-color:#a78bfa; }
+  .p-forecast   { background:#dbeafe; color:#2563eb;  border-color:#93c5fd; font-style:italic; }
+  .p-projected  { background:#ede9fe; color:#6d28d9;  border-color:#a78bfa; }
+  .p-confirmed  { background:#d1fae5; color:#065f46;  border-color:#6ee7b7; }
 
   .g { color:var(--green); font-weight:700; }
   .a { color:var(--amber); font-weight:700; }
@@ -836,6 +837,7 @@ function tagPill(tag, isForecast) {
     'additional support hours': ['p-support',  'Additional Support'],
     'payg hours used':          ['p-payg',     'PAYG Hours Used'],
     'projected':                ['p-projected','Projected'],
+    'confirmed pipeline':       ['p-confirmed','Confirmed (Roadmap)'],
   };
   var m = map[tag] || ['p-project', 'Project'];
   return '<span class="pill '+m[0]+'">'+m[1]+'</span>';

@@ -962,15 +962,15 @@ function allocMoChange(taskId, idx, val) {
   var s = getOrInitAllocState(taskId);
   if (!s.allocations[idx]) return;
   s.allocations[idx].month = val;
-  if (s.allocations[idx].hours && s.allocations[idx].month) {
-    yearData = null;
-    persistAllocations(taskId);
-  }
+  // Save whenever a month is picked — even without hours, so the bar persists
+  yearData = null;
+  persistAllocations(taskId);
 }
 
 function persistAllocations(taskId) {
   var s      = getOrInitAllocState(taskId);
-  var allocs = s.allocations.filter(function(a){ return a.hours && a.month; });
+  // Include month-only rows (no hours) — they drive bar placement without affecting balance
+  var allocs = s.allocations.filter(function(a){ return a.month; });
   run('saveProjection', selIdx, taskId, s.taskName, s.confirmedTotal, allocs.length ? allocs : null)
     .then(function() {
       var tid  = taskId.replace(/[^a-zA-Z0-9]/g, '_');
@@ -1125,6 +1125,22 @@ function renderGantt(tasks, projections, months, groups) {
     +'</div>';
 }
 
+// Returns bar column span based on manually-allocated months (for pre-work tasks).
+// Spans from the earliest to the latest allocated month visible in the gantt.
+// Falls back to null if no allocated months are in view.
+function getPreWorkBarCols(taskId, months) {
+  var s = taskAllocState[taskId];
+  if (!s || !s.allocations || !s.allocations.length) return null;
+  var indices = s.allocations
+    .filter(function(a){ return a.month; })
+    .map(function(a){ return months.indexOf(a.month); })
+    .filter(function(i){ return i >= 0; });
+  if (!indices.length) return null;
+  var start = Math.min.apply(null, indices);
+  var end   = Math.max.apply(null, indices) + 1; // exclusive
+  return { start: start, end: end, startFrac: 0, dueFrac: 1 };
+}
+
 function ganttTaskRow(t, months, projections, nowMonth) {
   var meta  = STATUS_META[t.status] || { color:'#64748b' };
   var tid   = t.id.replace(/[^a-zA-Z0-9]/g, '_');
@@ -1171,7 +1187,12 @@ function ganttTaskRow(t, months, projections, nowMonth) {
     +'</div></td>';
 
   // Month cells with bar
-  var bc = taskBarCols(t, months);
+  // Pre-work: bar driven by manually allocated months; fallback to ClickUp dates if none set.
+  // In Flight / In Review: always use ClickUp start/due dates.
+  var isPreWork = (STATUS_META[t.status] || {}).group === 'pre';
+  var bc = isPreWork
+    ? (getPreWorkBarCols(t.id, months) || taskBarCols(t, months))
+    : taskBarCols(t, months);
   var monthTds = '';
 
   if (!bc) {

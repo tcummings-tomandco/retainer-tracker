@@ -48,8 +48,10 @@ async function saveProjection(clientIndex, taskId, taskName, confirmedTotal, all
     const doc  = await ref.get();
     const data = doc.exists ? (doc.data() || {}) : {};
 
+    // Allow month-only allocations (hours may be null) — used for roadmap bar
+    // placement without committing hours to the balance forecast.
     const validAllocs = Array.isArray(allocations)
-      ? allocations.filter(a => a && a.hours && a.month)
+      ? allocations.filter(a => a && a.month)
       : [];
 
     if (!validAllocs.length) {

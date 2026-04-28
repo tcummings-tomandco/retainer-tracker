@@ -108,6 +108,7 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
         if (!p.allocations) continue;
         p.allocations.forEach(alloc => {
           if (alloc.month !== month || seen[pid]) return;
+          if (!alloc.hours) return; // month-only entries: bar only, no balance/drilldown entry
           const isConfirmed = p.confirmedTotal != null;
           tasks.push({
             id: pid, name: p.taskName || 'Projected Task', url: null, parentId: null,
@@ -139,6 +140,7 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
       p.allocations.forEach(alloc => {
         if (alloc.month !== month) return;
         if (seen[pid]) return; // already present from planned tasks
+        if (!alloc.hours) return; // month-only entries: bar only, no drilldown entry
         const isConfirmed = p.confirmedTotal != null;
         tasks.push({
           id:             pid,

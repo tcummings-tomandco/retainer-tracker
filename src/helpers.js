@@ -147,7 +147,7 @@ function applyProjectionsToYear(data, projections) {
     const p = projections[tid];
     if (!p.allocations) continue;
     p.allocations.forEach(a => {
-      if (!a.month || !a.hours) return;
+      if (!a.month || !a.hours) return; // month-only entries don't affect balance
       projByMonth[a.month] = (projByMonth[a.month] || 0) + a.hours;
     });
   }

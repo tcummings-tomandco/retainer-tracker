@@ -89,12 +89,39 @@ async function buildYearView(clientIndex, budget, yearStart, externalPaygCache) 
 async function buildMonthData(clientIndex, budget, month, paygCache, precomputedTasks, externalProjections) {
   const client   = CLIENTS[parseInt(clientIndex, 10)];
   const tid      = teamId();
-  const today    = currentBillingMonth();
-  const isFuture = ALL_MONTHS.indexOf(month) > ALL_MONTHS.indexOf(today);
+  const today     = currentBillingMonth();
+  const monthIdx  = ALL_MONTHS.indexOf(month);
+  const todayIdx  = ALL_MONTHS.indexOf(today);
+  const isFuture  = monthIdx > todayIdx;
+  const isCurrent = monthIdx === todayIdx;
   let tasks = [];
 
   if (!isFuture) {
     tasks = precomputedTasks || await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache || null);
+    // Current month: also include roadmap allocations not yet billed in ClickUp
+    if (isCurrent) {
+      const seen = {};
+      tasks.forEach(t => { seen[t.id] = true; });
+      const projData = externalProjections || await getProjections(clientIndex);
+      for (const pid in projData) {
+        const p = projData[pid];
+        if (!p.allocations) continue;
+        p.allocations.forEach(alloc => {
+          if (alloc.month !== month || seen[pid]) return;
+          const isConfirmed = p.confirmedTotal != null;
+          tasks.push({
+            id: pid, name: p.taskName || 'Projected Task', url: null, parentId: null,
+            status: isConfirmed ? 'confirmed' : 'projected',
+            tag:    isConfirmed ? 'confirmed pipeline' : 'projected',
+            labels: [], billingMonth: month, budget: null,
+            quoteHours: alloc.hours, retainerBalance: null,
+            listName: 'Roadmap',
+            isProjected: !isConfirmed, isConfirmedPipeline: isConfirmed,
+            confirmedTotal: p.confirmedTotal || null,
+          });
+        });
+      }
+    }
   } else {
     const templates = await fetchMonthlyTemplates(tid, client.billingListId, budget);
     const planned   = await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache || null);

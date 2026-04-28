@@ -147,6 +147,23 @@
   .tl-chip a:hover { color:#2563eb; }
   .tl-chip-right { display:flex; gap:4px; align-items:center; flex-shrink:0; }
 
+  /* ── Roadmap balance strip ─────────────────────────────── */
+  .rbal-strip      { display:flex; gap:7px; overflow-x:auto; padding-bottom:6px; margin-bottom:18px; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+  .rbal-card       { flex:0 0 86px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:9px 8px; position:relative; overflow:hidden; }
+  .rbal-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+  .rbal-card.pos::before  { background:var(--green); }
+  .rbal-card.warn::before { background:var(--amber); }
+  .rbal-card.neg::before  { background:var(--red); }
+  .rbal-card.current      { border-color:var(--amber); }
+  .rbal-label  { font-size:9px; color:var(--muted); font-weight:600; letter-spacing:.4px; margin-bottom:3px; }
+  .rbal-val    { font-size:15px; font-weight:800; line-height:1; margin-bottom:2px; }
+  .rbal-val.pos  { color:var(--green); }
+  .rbal-val.warn { color:var(--amber); }
+  .rbal-val.neg  { color:var(--red); }
+  .rbal-meta   { font-size:9px; color:var(--muted); min-height:12px; }
+  .rbal-bar-wrap { margin-top:5px; height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .rbal-bar-fill { height:100%; border-radius:2px; }
+
   /* ── Roadmap / Gantt ───────────────────────────────────── */
   .roadmap-wrap  { padding:24px; }
   .gantt-outer   { overflow-x:auto; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; border:1px solid var(--border); border-radius:var(--radius); }
@@ -961,6 +978,8 @@ function persistAllocations(taskId) {
         wrap.style.outline = '1px solid #10b981';
         setTimeout(function(){ wrap.style.outline = ''; }, 1200);
       }
+      // Refresh the balance strip with the updated forecast
+      refreshRoadmapBalanceStrip();
     })
     .catch(function() { yearData = null; });
 }
@@ -973,12 +992,41 @@ function loadRoadmap() {
   Promise.all([
     run('getPipelineData', selIdx),
     run('getProjections', selIdx),
+    run('getYearView', selIdx, budget, yearStart),
   ]).then(function(r) {
-    renderRoadmap(r[0].tasks || [], r[1].projections || {});
+    yearData = r[2];
+    renderRoadmap(r[0].tasks || [], r[1].projections || {}, r[2]);
   }).catch(function(e){ showError(e.message); });
 }
 
-function renderRoadmap(tasks, projections) {
+function renderRoadmapBalanceStrip(months) {
+  if (!months || !months.length) return '';
+  var maxAbs = Math.max.apply(null, months.map(function(m){ return Math.abs(m.closingBalance||0); }).concat([1]));
+  return months.map(function(m) {
+    var cls = balCls(m.closingBalance);
+    var pct = Math.min(Math.abs(m.closingBalance||0) / maxAbs * 100, 100);
+    return '<div class="rbal-card '+cls+(m.isCurrent?' current':'')+'">'
+      +'<div class="rbal-label">'+m.month+'</div>'
+      +'<div class="rbal-val '+cls+'">'+(m.closingBalance!=null?fmt(m.closingBalance):'—')+'</div>'
+      +'<div class="rbal-meta">'+(m.isFuture&&m.projectedHours?m.projectedHours+'h proj.':'&nbsp;')+'</div>'
+      +'<div class="rbal-bar-wrap"><div class="rbal-bar-fill" style="width:'+pct+'%;background:'+bcRaw(m.closingBalance)+'"></div></div>'
+      +(m.isCurrent?'<div style="margin-top:4px"><span class="month-badge badge-now">Now</span></div>':'')
+      +(m.isFuture ?'<div style="margin-top:4px"><span class="month-badge badge-forecast">Forecast</span></div>':'')
+      +'</div>';
+  }).join('');
+}
+
+function refreshRoadmapBalanceStrip() {
+  var strip = document.getElementById('roadmap-balance-strip');
+  if (!strip) return;
+  strip.innerHTML = '<span style="font-size:10px;color:var(--muted);padding:4px 2px">Updating…</span>';
+  run('getYearView', selIdx, budget, yearStart).then(function(data) {
+    yearData = data;
+    strip.innerHTML = renderRoadmapBalanceStrip(data.months || []);
+  }).catch(function() { strip.innerHTML = ''; });
+}
+
+function renderRoadmap(tasks, projections, yearViewData) {
   var months = roadmapMonths();
 
   // Initialise allocation state for every task from saved projections
@@ -1035,6 +1083,11 @@ function renderRoadmap(tasks, projections) {
   }).join('');
 
   document.getElementById('main').innerHTML = renderGantt(tasks, projections, months, groups);
+  // Populate balance strip (element exists after innerHTML set above)
+  var strip = document.getElementById('roadmap-balance-strip');
+  if (strip && yearViewData && yearViewData.months) {
+    strip.innerHTML = renderRoadmapBalanceStrip(yearViewData.months);
+  }
   document.getElementById('tplBar').style.display = 'none';
   setTimeout(function(){ attachScrollFix('.gantt-outer'); }, 0);
 }
@@ -1065,6 +1118,7 @@ function renderGantt(tasks, projections, months, groups) {
   });
 
   return '<div class="roadmap-wrap">'
+    +'<div id="roadmap-balance-strip" class="rbal-strip"></div>'
     +'<div class="section-title">Roadmap · '+months[0]+' → '+months[months.length-1]+'</div>'
     +'<div class="gantt-outer"><table class="gantt-table">'+colgroup+thead+'<tbody>'+tbody+'</tbody></table></div>'
     +'</div>';

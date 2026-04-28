@@ -84,6 +84,18 @@ async function buildYearView(clientIndex, budget, yearStart, externalPaygCache) 
   };
 }
 
+// Returns { allocationIndex, allocationCount } for a multi-month confirmed quote.
+// Both are null if the quota isn't split (single allocation with hours).
+// Counts only allocations that carry hours (month-only bar entries are excluded).
+function allocFraction(p, month) {
+  const withHours = (p.allocations || [])
+    .filter(a => a.month && a.hours)
+    .sort((a, b) => ALL_MONTHS.indexOf(a.month) - ALL_MONTHS.indexOf(b.month));
+  if (withHours.length <= 1) return { allocationIndex: null, allocationCount: null };
+  const idx = withHours.findIndex(a => a.month === month);
+  return { allocationIndex: idx >= 0 ? idx + 1 : null, allocationCount: withHours.length };
+}
+
 // Builds a month drilldown. For future months, merges recurring templates and
 // manual roadmap allocations from projections (set via the Roadmap UI).
 async function buildMonthData(clientIndex, budget, month, paygCache, precomputedTasks, externalProjections) {
@@ -110,6 +122,7 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
           if (alloc.month !== month || seen[pid]) return;
           if (!alloc.hours) return; // month-only entries: bar only, no balance/drilldown entry
           const isConfirmed = p.confirmedTotal != null;
+          const frac = allocFraction(p, month);
           tasks.push({
             id: pid, name: p.taskName || 'Projected Task', url: null, parentId: null,
             status: isConfirmed ? 'confirmed' : 'projected',
@@ -118,7 +131,9 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
             quoteHours: alloc.hours, retainerBalance: null,
             listName: 'Roadmap',
             isProjected: !isConfirmed, isConfirmedPipeline: isConfirmed,
-            confirmedTotal: p.confirmedTotal || null,
+            confirmedTotal:   p.confirmedTotal || null,
+            allocationIndex:  frac.allocationIndex,
+            allocationCount:  frac.allocationCount,
           });
         });
       }
@@ -142,6 +157,7 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
         if (seen[pid]) return; // already present from planned tasks
         if (!alloc.hours) return; // month-only entries: bar only, no drilldown entry
         const isConfirmed = p.confirmedTotal != null;
+        const frac = allocFraction(p, month);
         tasks.push({
           id:             pid,
           name:           p.taskName || 'Projected Task',
@@ -157,7 +173,9 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
           listName:       'Roadmap',
           isProjected:    !isConfirmed,
           isConfirmedPipeline: isConfirmed,
-          confirmedTotal: p.confirmedTotal || null,
+          confirmedTotal:  p.confirmedTotal || null,
+          allocationIndex: frac.allocationIndex,
+          allocationCount: frac.allocationCount,
         });
       });
     }

@@ -700,12 +700,16 @@ function renderDrilldown(data) {
   }
 
   var rows = tasks.map(function(t) {
+    var isRoadmapEntry = t.isProjected || t.isConfirmedPipeline;
+    var fracBadge = (t.allocationCount > 1)
+      ? ' <span style="color:var(--muted);font-size:9px;font-weight:400">('+t.allocationIndex+' of '+t.allocationCount+')</span>'
+      : '';
     var hrs = t.quoteHours != null
-      ? '<span class="'+(t.tag==='retainer hours'?'g':'o')+'">'+(t.tag==='retainer hours'?'+':'-')+t.quoteHours+'h</span>'
+      ? '<span class="'+(t.tag==='retainer hours'?'g':'o')+'">'+(t.tag==='retainer hours'?'+':'-')+t.quoteHours+'h</span>'+fracBadge
       : '—';
     var bal = t.retainerBalance != null
       ? '<span class="'+balCls(t.retainerBalance)+'">'+fmt(t.retainerBalance)+'</span>'
-      : (data.isFuture ? '<span style="color:var(--muted)">projected</span>' : '—');
+      : (data.isFuture || isRoadmapEntry ? '<span style="color:var(--muted)">projected</span>' : '—');
     var link = t.url
       ? '<a href="'+t.url+'" target="_blank" style="color:var(--text);text-decoration:none">'+esc(t.name)+'</a>'
       : esc(t.name);

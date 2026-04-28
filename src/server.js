@@ -102,13 +102,15 @@ app.post('/api/projections', requireAdmin, async (req, res) => {
     await saveProjection(idx, taskId, taskName, confirmedTotal, allocations);
     const client  = CLIENTS[idx];
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
-    // Bust the year view + every month that has an allocation
+    // Bust only the month drilldown caches for affected months.
+    // The year view does NOT need busting — getYearView always fetches fresh
+    // projections from Firestore and overlays them via applyProjectionsToYear,
+    // so the balance forecast updates instantly without a ClickUp rebuild.
     const months = Array.isArray(allocations) ? [...new Set(allocations.map(a => a.month).filter(Boolean))] : [];
     await Promise.all([
-      ...budgets.flatMap(b => [
-        deleteCache(`year_${idx}_${b || 'all'}_Jan 26`),
-        ...months.map(m => deleteCache(`month_${idx}_${b || 'all'}_${m}`)),
-      ]),
+      ...budgets.flatMap(b =>
+        months.map(m => deleteCache(`month_${idx}_${b || 'all'}_${m}`))
+      ),
       deleteCache('overview_Jan 26'),
     ]);
     res.json({ ok: true });

@@ -313,6 +313,7 @@ var clients = [], selIdx = 0, budget = null, yearStart = 'Jan 26';
 var yearData = null, activeMonth = null;
 var pipelineData = null, activeView = 'balance';
 var taskAllocState = {}; // keyed by raw task ID: { taskName, confirmedTotal, allocations:[{hours,month}] }
+var roadmapRenderState = null; // { tasks, projections, months, nowMonth } — kept for live row refresh
 
 // ── Pipeline constants ─────────────────────────────────────────
 var PIPELINE_ORDER = [
@@ -937,13 +938,13 @@ function refreshAllocWrap(taskId) {
 function addAllocRow(taskId) {
   var s = getOrInitAllocState(taskId);
   s.allocations.push({ hours:'', month:'' });
-  refreshAllocWrap(taskId);
+  refreshGanttRow(taskId);
 }
 
 function removeAllocRow(taskId, idx) {
   var s = getOrInitAllocState(taskId);
   s.allocations.splice(idx, 1);
-  refreshAllocWrap(taskId);
+  refreshGanttRow(taskId);
   yearData = null;
   persistAllocations(taskId);
 }
@@ -962,7 +963,9 @@ function allocMoChange(taskId, idx, val) {
   var s = getOrInitAllocState(taskId);
   if (!s.allocations[idx]) return;
   s.allocations[idx].month = val;
-  // Save whenever a month is picked — even without hours, so the bar persists
+  // Refresh the row immediately so the bar updates in place
+  refreshGanttRow(taskId);
+  // Save — even without hours, so the bar persists after reload
   yearData = null;
   persistAllocations(taskId);
 }
@@ -1083,6 +1086,7 @@ function renderRoadmap(tasks, projections, yearViewData) {
       +'<div class="kpi-sub">'+k.sub+'</div></div>';
   }).join('');
 
+  roadmapRenderState = { tasks: tasks, projections: projections, months: months, nowMonth: months[0] };
   document.getElementById('main').innerHTML = renderGantt(tasks, projections, months, groups);
   // Populate balance strip (element exists after innerHTML set above)
   var strip = document.getElementById('roadmap-balance-strip');
@@ -1214,7 +1218,20 @@ function ganttTaskRow(t, months, projections, nowMonth) {
     }
   }
 
-  return '<tr>'+nameTd+monthTds+'</tr>';
+  return '<tr id="gantt-row-'+tid+'">'+nameTd+monthTds+'</tr>';
+}
+
+function refreshGanttRow(taskId) {
+  if (!roadmapRenderState) return;
+  var tid = taskId.replace(/[^a-zA-Z0-9]/g, '_');
+  var row = document.getElementById('gantt-row-' + tid);
+  if (!row) return;
+  var t = roadmapRenderState.tasks.find(function(x){ return x.id === taskId; });
+  if (!t) return;
+  var html = ganttTaskRow(t, roadmapRenderState.months, roadmapRenderState.projections, roadmapRenderState.nowMonth);
+  var tmp  = document.createElement('tbody');
+  tmp.innerHTML = html;
+  row.parentNode.replaceChild(tmp.firstChild, row);
 }
 
 // ── Pipeline: load & render ────────────────────────────────────

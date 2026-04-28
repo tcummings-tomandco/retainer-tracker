@@ -213,14 +213,29 @@ async function getPipelineData(clientIndex) {
 }
 
 async function forceRefreshYearView(clientIndex, budget, yearStart) {
-  const cacheKey = `year_${clientIndex}_${budget || 'all'}_${yearStart || 'Jan 26'}`;
+  const ys       = yearStart || 'Jan 26';
+  const cacheKey = `year_${clientIndex}_${budget || 'all'}_${ys}`;
   await deleteCache(cacheKey);
-  const result = await buildYearView(clientIndex, budget, yearStart);
+
+  const proj   = await getProjections(clientIndex);
+  const result = await buildYearView(clientIndex, budget, ys);
   result.cachedAt = new Date().toISOString();
+
+  // Also rebuild every month drilldown cache using the task data already fetched
+  const si = ALL_MONTHS.indexOf(ys);
+  const ei = Math.min(ALL_MONTHS.length - 1, si + 11);
+  for (let i = si; i <= ei; i++) {
+    const m  = ALL_MONTHS[i];
+    const mk = `month_${clientIndex}_${budget || 'all'}_${m}`;
+    const md = await buildMonthData(clientIndex, budget, m, null, result.monthTasksMap && result.monthTasksMap[m], proj);
+    md.cachedAt = new Date().toISOString();
+    await setCache(mk, md);
+  }
+
   const toCache = Object.assign({}, result);
   delete toCache.monthTasksMap;
   await setCache(cacheKey, toCache);
-  return applyProjectionsToYear(result, await getProjections(clientIndex));
+  return applyProjectionsToYear(result, proj);
 }
 
 async function forceRefreshPipelineData(clientIndex) {

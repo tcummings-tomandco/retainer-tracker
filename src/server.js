@@ -94,17 +94,21 @@ app.get('/api/projections', async (req, res) => {
 });
 
 // Save projections — admin only (client users are read-only)
+// Body: { clientIndex, taskId, taskName, confirmedTotal, allocations: [{hours, month}] }
 app.post('/api/projections', requireAdmin, async (req, res) => {
   try {
-    const { clientIndex, taskId, taskName, projectedHours, targetMonth } = req.body;
+    const { clientIndex, taskId, taskName, confirmedTotal, allocations } = req.body;
     const idx     = parseInt(clientIndex, 10);
-    await saveProjection(idx, taskId, taskName, projectedHours, targetMonth);
+    await saveProjection(idx, taskId, taskName, confirmedTotal, allocations);
     const client  = CLIENTS[idx];
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
+    // Bust the year view + every month that has an allocation
+    const months = Array.isArray(allocations) ? [...new Set(allocations.map(a => a.month).filter(Boolean))] : [];
     await Promise.all([
-      ...budgets.map(b =>
-        targetMonth ? deleteCache(`month_${idx}_${b || 'all'}_${targetMonth}`) : Promise.resolve()
-      ),
+      ...budgets.flatMap(b => [
+        deleteCache(`year_${idx}_${b || 'all'}_Jan 26`),
+        ...months.map(m => deleteCache(`month_${idx}_${b || 'all'}_${m}`)),
+      ]),
       deleteCache('overview_Jan 26'),
     ]);
     res.json({ ok: true });

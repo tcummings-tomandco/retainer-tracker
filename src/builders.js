@@ -84,9 +84,9 @@ async function buildYearView(clientIndex, budget, yearStart, externalPaygCache) 
   };
 }
 
-// externalPipelineTasks — pass the already-fetched pipeline task array to avoid an
-// extra ClickUp call. If omitted the function fetches and caches pipeline data itself.
-async function buildMonthData(clientIndex, budget, month, paygCache, precomputedTasks, externalProjections, externalPipelineTasks) {
+// Builds a month drilldown. For future months, merges recurring templates and
+// manual roadmap allocations from projections (set via the Roadmap UI).
+async function buildMonthData(clientIndex, budget, month, paygCache, precomputedTasks, externalProjections) {
   const client   = CLIENTS[parseInt(clientIndex, 10)];
   const tid      = teamId();
   const today    = currentBillingMonth();
@@ -104,41 +104,33 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
       templates.filter(t => !seen[t.id]).map(t => Object.assign({}, t, { isForecast: true }))
     );
 
-    // Confirmed pipeline tasks for this month (quoteHours confirmed + dueMonth matches)
-    // These supersede any matching manual projection for the same task ID.
-    let pipelineTasks = externalPipelineTasks;
-    if (!pipelineTasks) {
-      const pd = await getPipelineData(clientIndex); // uses cache
-      pipelineTasks = pd.tasks || [];
-    }
-    const confirmedForMonth = pipelineTasks.filter(t => t.dueMonth === month && t.quoteHours != null);
-    const confirmedIds = new Set(confirmedForMonth.map(t => t.id));
-    confirmedForMonth.forEach(t => {
-      if (!seen[t.id]) {
-        tasks.push({
-          id: t.id, name: t.name, url: t.url || null, parentId: null,
-          status: t.status || '', tag: 'confirmed pipeline', labels: [],
-          billingMonth: month, budget: null,
-          quoteHours: t.quoteHours, retainerBalance: null,
-          listName: 'Roadmap', isConfirmedPipeline: true,
-        });
-        seen[t.id] = true;
-      }
-    });
-
-    // Manual projections — skip tasks that now have a confirmed pipeline quote
+    // Manual roadmap allocations — add any projection entry that has an allocation targeting this month.
     const projData = externalProjections || await getProjections(clientIndex);
     for (const pid in projData) {
       const p = projData[pid];
-      if (p.targetMonth === month && !confirmedIds.has(pid)) {
+      if (!p.allocations) continue;
+      p.allocations.forEach(alloc => {
+        if (alloc.month !== month) return;
+        if (seen[pid]) return; // already present from planned tasks
+        const isConfirmed = p.confirmedTotal != null;
         tasks.push({
-          id: pid, name: p.taskName || 'Projected Task', url: null, parentId: null,
-          status: 'projected', tag: 'projected', labels: [],
-          billingMonth: month, budget: null,
-          quoteHours: p.projectedHours, retainerBalance: null,
-          listName: 'Roadmap', isProjected: true,
+          id:             pid,
+          name:           p.taskName || 'Projected Task',
+          url:            null,
+          parentId:       null,
+          status:         isConfirmed ? 'confirmed' : 'projected',
+          tag:            isConfirmed ? 'confirmed pipeline' : 'projected',
+          labels:         [],
+          billingMonth:   month,
+          budget:         null,
+          quoteHours:     alloc.hours,
+          retainerBalance: null,
+          listName:       'Roadmap',
+          isProjected:    !isConfirmed,
+          isConfirmedPipeline: isConfirmed,
+          confirmedTotal: p.confirmedTotal || null,
         });
-      }
+      });
     }
   }
   return { ok: true, month, isFuture, tasks };
@@ -156,19 +148,12 @@ async function buildPipelineData(clientIndex) {
 
 async function getYearView(clientIndex, budget, yearStart) {
   const cacheKey = `year_${clientIndex}_${budget || 'all'}_${yearStart || 'Jan 26'}`;
-
-  // Pipeline tasks are needed to overlay confirmed quotes onto future-month balances.
-  // getPipelineData uses its own Firestore cache so this is a single fast read.
-  const [pipelineResult, proj] = await Promise.all([
-    getPipelineData(clientIndex),
-    getProjections(clientIndex),
-  ]);
-  const pipelineTasks = (pipelineResult && pipelineResult.tasks) || [];
+  const proj = await getProjections(clientIndex);
 
   const cached = await getCache(cacheKey);
   if (cached) {
     let out = reapplyDateFlags(cached);
-    out = applyProjectionsToYear(out, proj, pipelineTasks);
+    out = applyProjectionsToYear(out, proj);
     out.fromCache = true;
     return out;
   }
@@ -177,17 +162,14 @@ async function getYearView(clientIndex, budget, yearStart) {
   const toCache = Object.assign({}, result);
   delete toCache.monthTasksMap;
   await setCache(cacheKey, toCache);
-  return applyProjectionsToYear(result, proj, pipelineTasks);
+  return applyProjectionsToYear(result, proj);
 }
 
 async function getMonthData(clientIndex, budget, month) {
   const cacheKey = `month_${clientIndex}_${budget || 'all'}_${month}`;
   const cached   = await getCache(cacheKey);
   if (cached) { cached.fromCache = true; return cached; }
-  // Pass pipeline tasks so confirmed quotes appear in future-month drilldowns
-  const pipelineResult = await getPipelineData(clientIndex);
-  const pipelineTasks  = (pipelineResult && pipelineResult.tasks) || [];
-  const result = await buildMonthData(clientIndex, budget, month, null, null, null, pipelineTasks);
+  const result = await buildMonthData(clientIndex, budget, month);
   result.cachedAt = new Date().toISOString();
   await setCache(cacheKey, result);
   return result;
@@ -233,11 +215,6 @@ async function refreshAllCaches() {
     const paygCache = await buildPaygDiscoveryCache(tid, client.spaceId);
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
 
-    // Fetch pipeline tasks once per client — passed to buildMonthData so confirmed
-    // quotes appear in future-month drilldown caches without extra ClickUp calls.
-    const pipelineRaw = await buildPipelineData(idx);
-    const pipelineTasks = (pipelineRaw && pipelineRaw.tasks) || [];
-
     for (const budget of budgets) {
       for (const ys of ['Jan 26']) {
         try {
@@ -249,7 +226,7 @@ async function refreshAllCaches() {
           for (let i = si; i <= Math.min(ALL_MONTHS.length - 1, si + 11); i++) {
             const m  = ALL_MONTHS[i];
             const mk = `month_${idx}_${budget || 'all'}_${m}`;
-            const md = await buildMonthData(idx, budget, m, paygCache, yr.monthTasksMap && yr.monthTasksMap[m], clientProjections, pipelineTasks);
+            const md = await buildMonthData(idx, budget, m, paygCache, yr.monthTasksMap && yr.monthTasksMap[m], clientProjections);
             md.cachedAt = new Date().toISOString();
             await setCache(mk, md);
           }

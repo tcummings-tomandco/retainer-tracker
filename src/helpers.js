@@ -134,33 +134,22 @@ function reapplyDateFlags(data) {
   return data;
 }
 
-// projections  — plain object { taskId: { projectedHours, targetMonth } }
-// pipelineTasks — array of parsed pipeline task objects (may have quoteHours + dueMonth)
+// projections — plain object { taskId: { taskName, confirmedTotal, allocations: [{hours, month}] } }
 //
-// Confirmed pipeline tasks (quoteHours set + dueMonth set) automatically appear in the
-// balance for their due month and supersede any manual projection for the same task ID,
-// so a 120h estimate is replaced by the confirmed 161h quote without user intervention.
-function applyProjectionsToYear(data, projections, pipelineTasks = []) {
+// Each allocation has a manual billing month set by the admin in the Roadmap UI.
+// confirmed vs unconfirmed is recorded in confirmedTotal (null = estimate).
+function applyProjectionsToYear(data, projections) {
   if (!data || !data.months) return data;
 
-  // Index confirmed pipeline tasks by due month
-  const confirmedByMonth = {};   // { 'May 26': [{ id, quoteHours, name, ... }] }
-  const confirmedTaskIds = new Set();
-  pipelineTasks.forEach(t => {
-    if (t.dueMonth && t.quoteHours != null) {
-      if (!confirmedByMonth[t.dueMonth]) confirmedByMonth[t.dueMonth] = [];
-      confirmedByMonth[t.dueMonth].push(t);
-      confirmedTaskIds.add(t.id);
-    }
-  });
-
-  // Manual projections — skip any task that now has a confirmed quote (it's superseded)
+  // Sum all allocation hours by month
   const projByMonth = {};
   for (const tid in projections) {
     const p = projections[tid];
-    if (!p.targetMonth || !p.projectedHours) continue;
-    if (confirmedTaskIds.has(tid)) continue; // confirmed quote takes over
-    projByMonth[p.targetMonth] = (projByMonth[p.targetMonth] || 0) + p.projectedHours;
+    if (!p.allocations) continue;
+    p.allocations.forEach(a => {
+      if (!a.month || !a.hours) return;
+      projByMonth[a.month] = (projByMonth[a.month] || 0) + a.hours;
+    });
   }
 
   const credit = data.monthlyCredit || 0;
@@ -168,19 +157,15 @@ function applyProjectionsToYear(data, projections, pipelineTasks = []) {
   data.months = data.months.map(m => {
     if (!m.isFuture) { prevClosing = m.closingBalance; return m; }
 
-    const confirmedCost = Math.round(
-      (confirmedByMonth[m.month] || []).reduce((s, t) => s + t.quoteHours, 0)
-    );
     const projCost    = Math.round(projByMonth[m.month] || 0);
-    const newHoursOut = (m.hoursOut || 0) + confirmedCost + projCost;
+    const newHoursOut = (m.hoursOut || 0) + projCost;
     const carryIn     = prevClosing !== null ? prevClosing : m.closingBalance - credit + newHoursOut;
     const newClosing  = Math.round((carryIn + credit - newHoursOut) * 10) / 10;
     prevClosing = newClosing;
     return Object.assign({}, m, {
       hoursOut:       newHoursOut,
       closingBalance: newClosing,
-      projectedHours: projCost,      // unconfirmed projections only (for capcom chart)
-      confirmedHours: confirmedCost, // confirmed pipeline (for capcom chart)
+      projectedHours: projCost,
     });
   });
   return data;

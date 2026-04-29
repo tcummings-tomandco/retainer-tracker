@@ -997,13 +997,15 @@ function loadRoadmap() {
   document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Building roadmap…</div></div>';
   document.getElementById('kpiStrip').innerHTML = '';
   document.getElementById('tplBar').style.display = 'none';
+  // Pipeline + projections are always cached — render the gantt immediately.
+  // Year data is fetched in the background so a cold year cache never blocks
+  // the roadmap from loading.
   Promise.all([
     run('getPipelineData', selIdx),
     run('getProjections', selIdx),
-    run('getYearView', selIdx, budget, yearStart),
   ]).then(function(r) {
-    yearData = r[2];
-    renderRoadmap(r[0].tasks || [], r[1].projections || {}, r[2]);
+    renderRoadmap(r[0].tasks || [], r[1].projections || {}, yearData);
+    refreshRoadmapBalanceStrip(); // fills the strip once year data arrives
   }).catch(function(e){ showError(e.message); });
 }
 

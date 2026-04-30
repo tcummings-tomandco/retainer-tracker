@@ -152,15 +152,19 @@ app.post('/api/admin/clear-all-caches', requireAdmin, async (req, res) => {
 });
 
 // ── Force refresh (admin only) ────────────────────────────────
-// Always refreshes ALL budgets for the client so switching tabs never shows
-// stale data from a partial rebuild.
+// Rebuilds ALL budgets for the client in parallel so switching tabs never
+// shows stale data.  Returns the result for the requested budget (the active
+// tab) so the frontend can render it immediately without a second round-trip.
 app.post('/api/refresh/year', requireAdmin, async (req, res) => {
   try {
-    const { client = 0, yearStart = 'Jan 26' } = req.body;
+    const { client = 0, budget, yearStart = 'Jan 26' } = req.body;
     const idx     = parseInt(client, 10);
     const budgets = CLIENTS[idx].hasRetainerBudget ? ['Retail', 'Trade'] : [null];
     const results = await Promise.all(budgets.map(b => forceRefreshYearView(idx, b, yearStart)));
-    res.json(results.length === 1 ? results[0] : { ok: true, budgets: results });
+    // Return the result for the requested budget — that's what the frontend
+    // renders directly.  Other budgets have been rebuilt in parallel silently.
+    const activeIdx = budget ? budgets.indexOf(budget) : 0;
+    res.json(results[activeIdx >= 0 ? activeIdx : 0]);
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 

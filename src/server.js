@@ -152,10 +152,15 @@ app.post('/api/admin/clear-all-caches', requireAdmin, async (req, res) => {
 });
 
 // ── Force refresh (admin only) ────────────────────────────────
+// Always refreshes ALL budgets for the client so switching tabs never shows
+// stale data from a partial rebuild.
 app.post('/api/refresh/year', requireAdmin, async (req, res) => {
   try {
-    const { client = 0, budget, yearStart = 'Jan 26' } = req.body;
-    res.json(await forceRefreshYearView(client, budget || null, yearStart));
+    const { client = 0, yearStart = 'Jan 26' } = req.body;
+    const idx     = parseInt(client, 10);
+    const budgets = CLIENTS[idx].hasRetainerBudget ? ['Retail', 'Trade'] : [null];
+    const results = await Promise.all(budgets.map(b => forceRefreshYearView(idx, b, yearStart)));
+    res.json(results.length === 1 ? results[0] : { ok: true, budgets: results });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 

@@ -4,6 +4,7 @@ const { effectiveHours, currentBillingMonth, reapplyDateFlags, applyProjectionsT
 const { fetchMonthlyTemplates, buildPaygDiscoveryCache, fetchTasksForMonth, fetchPipelineTasks } = require('./clickup');
 const { getCache, setCache, deleteCache } = require('./cache');
 const { getProjections } = require('./projections');
+const billingField = require('./billing-field');
 
 function teamId() {
   const v = process.env.CLICKUP_TEAM_ID;
@@ -237,6 +238,9 @@ async function forceRefreshYearView(clientIndex, budget, yearStart) {
   const cacheKey = `year_${clientIndex}_${budget || 'all'}_${ys}`;
   await deleteCache(cacheKey);
 
+  // Re-fetch the billing field map so newly added months are reflected immediately.
+  await billingField.forceRefresh(CLIENTS[parseInt(clientIndex, 10)].billingListId);
+
   const proj   = await getProjections(clientIndex, budget);
   const result = await buildYearView(clientIndex, budget, ys);
   result.cachedAt = new Date().toISOString();
@@ -270,6 +274,10 @@ async function forceRefreshPipelineData(clientIndex) {
 async function refreshAllCaches() {
   console.log('Cache refresh: ' + new Date().toISOString());
   const tid = teamId();
+
+  // Always re-fetch the billing dropdown map at the start of every cron run
+  // so new months added to the ClickUp dropdown are picked up immediately.
+  await billingField.forceRefresh(CLIENTS[0].billingListId);
 
   for (let idx = 0; idx < CLIENTS.length; idx++) {
     const client  = CLIENTS[idx];

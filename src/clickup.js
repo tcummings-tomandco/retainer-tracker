@@ -1,6 +1,7 @@
 'use strict';
-const { CLICKUP_BASE, CF, BILLING_TO_IDX, PIPELINE_STATUSES } = require('./config');
+const { CLICKUP_BASE, CF, PIPELINE_STATUSES } = require('./config');
 const { parseTask, parsePipelineTask } = require('./helpers');
+const billingField = require('./billing-field');
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -27,7 +28,8 @@ async function cuFetch(url) {
 }
 
 async function fetchMonthlyTemplates(teamId, billingListId, budget) {
-  const idx     = BILLING_TO_IDX['Monthly'];
+  await billingField.ensureFresh(billingListId);
+  const idx     = billingField.state.toIdx['Monthly'];
   const filters = [{ field_id: CF.BILLING, operator: '=', value: String(idx) }];
   if (budget === 'Retail') filters.push({ field_id: CF.RETAINER_BUDGET, operator: '=', value: '0' });
   if (budget === 'Trade')  filters.push({ field_id: CF.RETAINER_BUDGET, operator: '=', value: '1' });
@@ -176,7 +178,9 @@ async function fetchBillingSubtasks(teamId, billingMonthName, budget, cfRawTasks
 // included even when the RETAINER_BUDGET custom field hasn't been set on the
 // monthly billing task (e.g. a new month was set up without it).
 async function fetchTasksForMonth(teamId, billingMonthName, budget, spaceId, paygCache, billingListId) {
-  const idx = BILLING_TO_IDX[billingMonthName];
+  // Ensure the billing dropdown map is current (refreshes hourly from ClickUp).
+  await billingField.ensureFresh(billingListId);
+  const idx = billingField.state.toIdx[billingMonthName];
   if (idx === undefined) return [];
 
   const filters = [{ field_id: CF.BILLING, operator: '=', value: String(idx) }];

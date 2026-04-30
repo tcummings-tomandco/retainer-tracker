@@ -1,5 +1,6 @@
 'use strict';
-const { CF, IDX_TO_BILLING, ALL_MONTHS } = require('./config');
+const { CF, ALL_MONTHS } = require('./config');
+const billingField = require('./billing-field');
 
 // Mirrors GAS currentBillingMonth() exactly — BST-aware, UK locale
 function currentBillingMonth() {
@@ -41,7 +42,7 @@ function parseTask(t) {
   const billingCF  = cfMap[CF.BILLING];
   let billingMonth = null;
   if (billingCF && billingCF.value != null)
-    billingMonth = IDX_TO_BILLING[String(billingCF.value)] || null;
+    billingMonth = billingField.state.toMonth[String(billingCF.value)] || null;
 
   const budgetCF = cfMap[CF.RETAINER_BUDGET];
   let budget = null;

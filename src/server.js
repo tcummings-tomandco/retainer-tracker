@@ -99,14 +99,22 @@ app.post('/api/projections', requireAdmin, async (req, res) => {
   try {
     const { clientIndex, budget, taskId, taskName, confirmedTotal, allocations } = req.body;
     const idx     = parseInt(clientIndex, 10);
+    // Read OLD months for this task before saving, so we can bust their caches too.
+    // Without this, moving a task from Sep to Jun would leave Sep's cached drilldown
+    // still showing the task.
+    const oldProjections = await getProjections(idx, budget || null);
+    const oldMonths = oldProjections[taskId]
+      ? (oldProjections[taskId].allocations || []).map(a => a.month).filter(Boolean)
+      : [];
     await saveProjection(idx, budget || null, taskId, taskName, confirmedTotal, allocations);
     const client  = CLIENTS[idx];
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
-    // Bust only the month drilldown caches for affected months.
+    // Bust month drilldown caches for ALL affected months — both old (removed) and new.
     // The year view does NOT need busting — getYearView always fetches fresh
     // projections from Firestore and overlays them via applyProjectionsToYear,
     // so the balance forecast updates instantly without a ClickUp rebuild.
-    const months = Array.isArray(allocations) ? [...new Set(allocations.map(a => a.month).filter(Boolean))] : [];
+    const newMonths = Array.isArray(allocations) ? allocations.map(a => a.month).filter(Boolean) : [];
+    const months = [...new Set([...oldMonths, ...newMonths])];
     await Promise.all([
       ...budgets.flatMap(b =>
         months.map(m => deleteCache(`month_${idx}_${b || 'all'}_${m}`))

@@ -176,6 +176,7 @@
   .gantt-th-month.gantt-th-now { color:var(--amber); border-left-color:#f59e0b50; }
 
   .gantt-group-row td { padding:7px 14px; background:#f8fafc; border-top:1px solid var(--border); border-bottom:1px solid var(--border); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; }
+  .gantt-group-hdr:hover td { background:#f1f5f9; }
 
   .gantt-name-cell { background:var(--surface); border-bottom:1px solid var(--border); padding:10px 14px; position:sticky; left:0; z-index:1; vertical-align:top; }
   .gantt-name-inner{ display:flex; align-items:flex-start; gap:8px; }
@@ -318,7 +319,8 @@ var clients = [], selIdx = 0, budget = null, yearStart = 'Jan 26';
 var yearData = null, activeMonth = null;
 var pipelineData = null, activeView = 'balance';
 var taskAllocState = {}; // keyed by raw task ID: { taskName, confirmedTotal, allocations:[{hours,month}] }
-var openAllocTasks = {}; // keyed by raw task ID: true when allocation panel is expanded
+var openAllocTasks  = {}; // keyed by raw task ID: true when allocation panel is expanded
+var collapsedGroups = {}; // keyed by group key ('pre','active','review'): true when collapsed
 var roadmapRenderState = null; // { tasks, projections, months, nowMonth } — kept for live row refresh
 
 // ── Pipeline constants ─────────────────────────────────────────
@@ -1130,21 +1132,32 @@ function renderGantt(tasks, projections, months, groups) {
       }).join('')
     + '</tr></thead>';
 
-  // Body
-  var tbody = '';
+  // Body — one <tbody> per group header, one per task rows so collapse works with display:none
+  var allTbodies = '';
   groups.forEach(function(g){
     if (!g.tasks.length) return;
-    tbody += '<tr class="gantt-group-row"><td colspan="'+(months.length+1)+'" style="border-left:3px solid '+g.color+'">'
+    var collapsed = !!collapsedGroups[g.key];
+    var chevron   = collapsed ? '▸' : '▾';
+    var taskCount = g.tasks.length;
+    allTbodies += '<tbody>'
+      +'<tr class="gantt-group-row gantt-group-hdr" onclick="toggleGroup(\''+g.key+'\')">'
+      +'<td colspan="'+(months.length+1)+'" style="border-left:3px solid '+g.color+';cursor:pointer">'
+      +'<span id="gantt-chevron-'+g.key+'" style="margin-right:5px;font-size:9px;opacity:.6">'+chevron+'</span>'
       +'<span style="color:'+g.color+'">'+g.label+'</span>'
-      +' <span style="color:var(--muted);font-weight:400">· '+g.tasks.length+' task'+(g.tasks.length!==1?'s':'')+'</span>'
-      +'</td></tr>';
-    g.tasks.forEach(function(t){ tbody += ganttTaskRow(t, months, projections, now); });
+      +' <span style="color:var(--muted);font-weight:400">· '+taskCount+' task'+(taskCount!==1?'s':'')+'</span>'
+      +'</td></tr>'
+      +'</tbody>';
+    var taskRows = '';
+    g.tasks.forEach(function(t){ taskRows += ganttTaskRow(t, months, projections, now); });
+    allTbodies += '<tbody id="gantt-group-'+g.key+'" style="'+(collapsed?'display:none':'')+'">'
+      +taskRows
+      +'</tbody>';
   });
 
   return '<div class="roadmap-wrap">'
     +'<div id="roadmap-balance-strip" class="rbal-strip"></div>'
     +'<div class="section-title">Roadmap · '+months[0]+' → '+months[months.length-1]+'</div>'
-    +'<div class="gantt-outer"><table class="gantt-table">'+colgroup+thead+'<tbody>'+tbody+'</tbody></table></div>'
+    +'<div class="gantt-outer"><table class="gantt-table">'+colgroup+thead+allTbodies+'</table></div>'
     +'</div>';
 }
 
@@ -1162,6 +1175,15 @@ function getPreWorkBarCols(taskId, months) {
   var start = Math.min.apply(null, indices);
   var end   = Math.max.apply(null, indices) + 1; // exclusive
   return { start: start, end: end, startFrac: 0, dueFrac: 1 };
+}
+
+// ── Group section collapse ─────────────────────────────────────
+function toggleGroup(key) {
+  collapsedGroups[key] = !collapsedGroups[key];
+  var body    = document.getElementById('gantt-group-'+key);
+  var chevron = document.getElementById('gantt-chevron-'+key);
+  if (body)    body.style.display  = collapsedGroups[key] ? 'none' : '';
+  if (chevron) chevron.textContent = collapsedGroups[key] ? '▸' : '▾';
 }
 
 // ── Allocation panel toggle helpers ───────────────────────────

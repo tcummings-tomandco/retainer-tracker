@@ -170,7 +170,12 @@ async function fetchBillingSubtasks(teamId, billingMonthName, budget, cfRawTasks
   return results;
 }
 
-async function fetchTasksForMonth(teamId, billingMonthName, budget, spaceId, paygCache) {
+// billingListId is optional — when supplied (budget-split clients), we run a
+// second query against the billing list WITHOUT the budget CF filter.  This
+// ensures retainer credit / carried-hours / recurring tasks are always
+// included even when the RETAINER_BUDGET custom field hasn't been set on the
+// monthly billing task (e.g. a new month was set up without it).
+async function fetchTasksForMonth(teamId, billingMonthName, budget, spaceId, paygCache, billingListId) {
   const idx = BILLING_TO_IDX[billingMonthName];
   if (idx === undefined) return [];
 
@@ -198,6 +203,34 @@ async function fetchTasksForMonth(teamId, billingMonthName, budget, spaceId, pay
   const seen  = {};
   tasks.forEach(t => { seen[t.id] = true; });
   billingSubtasks.forEach(t => { if (!seen[t.id]) { seen[t.id] = true; tasks.push(t); } });
+
+  // ── Billing-list fallback for budget-split clients ────────────────────────
+  // For clients with a budget split (Retail/Trade), some billing tasks
+  // (retainer credit, carried hours, recurring) may not have the
+  // RETAINER_BUDGET CF set — typically when a new month's tasks are first
+  // created. Query the billing list directly (no budget filter) and merge in
+  // any credit/carried/recurring tasks that the main query missed.
+  if (budget && billingListId) {
+    const billingOnlyFilters = [{ field_id: CF.BILLING, operator: '=', value: String(idx) }];
+    const billingListData = await cuFetch(CLICKUP_BASE + '/team/' + teamId + '/task?'
+      + 'custom_fields=' + encodeURIComponent(JSON.stringify(billingOnlyFilters))
+      + '&list_ids[]=' + billingListId
+      + '&include_closed=true&subtasks=false');
+
+    const billingTags = new Set([
+      'retainer hours', 'retainer am hours', 'retainer carried hours', 'retainer recurring',
+    ]);
+    (billingListData.tasks || []).forEach(t => {
+      if (seen[t.id]) return; // already included from the main query
+      const parsed = parseTask(t);
+      // Only pull in billing-type tasks; strictly match project/PAYG tasks by budget
+      if (!billingTags.has(parsed.tag)) return;
+      // If the task has an explicit opposite budget, skip it
+      if (parsed.budget && parsed.budget !== budget) return;
+      seen[parsed.id] = true;
+      tasks.push(parsed);
+    });
+  }
 
   const livePaygCache = paygCache || await buildPaygDiscoveryCache(teamId, spaceId);
   fetchPaygSubtasks(billingMonthName, budget, livePaygCache)

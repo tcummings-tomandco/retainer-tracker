@@ -42,7 +42,7 @@ async function buildYearView(clientIndex, budget, yearStart, externalPaygCache) 
 
     let carriedIn = 0;
     if (!isFuture) {
-      const tasks = await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache);
+      const tasks = await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache, client.billingListId);
       monthTasksMap[month] = tasks;
       taskCount = tasks.length;
       hoursOut  = tasks.reduce((s, t) => s + effectiveHours(t), 0);
@@ -52,7 +52,7 @@ async function buildYearView(clientIndex, budget, yearStart, externalPaygCache) 
         s + (t.tag === 'retainer hours' && t.retainerBalance ? t.retainerBalance : 0), 0);
       closingBalance = carriedIn + credit - hoursOut;
     } else {
-      const planned     = await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache);
+      const planned     = await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache, client.billingListId);
       taskCount         = planned.length;
       const plannedCost = planned.reduce((s, t) => s + effectiveHours(t), 0);
       hoursOut          = recurringCost + plannedCost;
@@ -109,7 +109,7 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
   let tasks = [];
 
   if (!isFuture) {
-    tasks = precomputedTasks || await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache || null);
+    tasks = precomputedTasks || await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache || null, client.billingListId);
     // Current month: also include roadmap allocations not yet billed in ClickUp
     if (isCurrent) {
       const seen = {};
@@ -140,7 +140,7 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
     }
   } else {
     const templates = await fetchMonthlyTemplates(tid, client.billingListId, budget);
-    const planned   = await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache || null);
+    const planned   = await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache || null, client.billingListId);
     const seen      = {};
     planned.forEach(t => { seen[t.id] = true; });
     tasks = planned.concat(

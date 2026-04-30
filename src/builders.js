@@ -149,7 +149,7 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
     );
 
     // Manual roadmap allocations — add any projection entry that has an allocation targeting this month.
-    const projData = externalProjections || await getProjections(clientIndex);
+    const projData = externalProjections || await getProjections(clientIndex, budget);
     for (const pid in projData) {
       const p = projData[pid];
       if (!p.allocations) continue;

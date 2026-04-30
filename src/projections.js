@@ -43,8 +43,11 @@ async function getProjections(clientIndex, budget) {
     if (doc.exists && Object.keys(doc.data() || {}).length > 0) {
       return normalise(doc.data() || {});
     }
-    // Backward-compat fallback: old data stored under clientIndex only (pre-budget-isolation)
-    if (budget) {
+    // Backward-compat fallback: old data was stored under clientIndex only (pre-budget-isolation).
+    // That legacy data had no budget tag — it was entered on the Retail tab — so only fall back
+    // for Retail.  Trade should be independent: if no Trade-specific doc exists, return empty
+    // so legacy Retail projections don't bleed into the Trade balance.
+    if (budget === 'Retail') {
       const legacyDoc = await db.collection('projections').doc(String(clientIndex)).get();
       if (legacyDoc.exists && Object.keys(legacyDoc.data() || {}).length > 0) {
         console.log(`Projections: falling back to legacy key "${clientIndex}" for client ${clientIndex} budget ${budget}`);
@@ -66,9 +69,11 @@ async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTo
     const doc  = await ref.get();
     let data = doc.exists ? (doc.data() || {}) : {};
 
-    // If this is the first write to a budget-specific key, seed from the legacy
-    // clientIndex-only key so existing projections aren't silently lost.
-    if (!doc.exists && budget) {
+    // If this is the first write to the Retail key, seed from the legacy clientIndex-only
+    // key so existing Retail projections aren't lost.  Don't seed Trade — legacy data
+    // was entered without a budget and is Retail-context; copying it into Trade would make
+    // Retail roadmap items appear on the Trade balance.
+    if (!doc.exists && budget === 'Retail') {
       try {
         const legacyDoc = await db.collection('projections').doc(String(clientIndex)).get();
         if (legacyDoc.exists && Object.keys(legacyDoc.data() || {}).length > 0) {

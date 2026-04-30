@@ -17,17 +17,31 @@ const PIPELINE_STATUSES = [
   'in progress', 'in client approval', 'in live approval',
 ];
 
+// Indices verified against ClickUp dropdown on 30 Apr 2026.
+// May 26 was added as option 0 (prepended), shifting all prior months by +1.
+// IMPORTANT: when a new billing month is added in ClickUp, re-verify these
+// indices by running: fetchBillingListField() or checking /list/:id/field.
 const BILLING_TO_IDX = {
-  'Apr 26':0,'Mar 26':1,'Feb 26':2,'Jan 26':3,
-  'Dec 25':4,'Nov 25':5,'Oct 25':6,'Sep 25':7,
-  'Aug 25':8,'Jul 25':9,'Jun 25':10,'May 25':11,
-  'Apr 25':12,'Mar 25':13,'Feb 25':14,'Jan 25':15,
-  'Dec 24':16,'Nov 24':17,'Oct 24':18,'Sep 24':19,
-  'Aug 24':20,'Jul 24':21,'Jun 24':22,'May 24':23,
-  'Apr 24':24,'Mar 24':25,'Feb 24':26,'Jan 24':27,
-  'May 26':66,'Jun 26':67,'Jul 26':68,'Aug 26':69,
-  'Sep 26':70,'Oct 26':71,'Nov 26':72,'Dec 26':73,
-  'Monthly':64,'PAYG':65,
+  'May 26':0,'Apr 26':1,'Mar 26':2,'Feb 26':3,'Jan 26':4,
+  'Dec 25':5,'Nov 25':6,'Oct 25':7,'Sep 25':8,
+  'Aug 25':9,'Jul 25':10,'Jun 25':11,'May 25':12,
+  'Apr 25':13,'Mar 25':14,'Feb 25':15,'Jan 25':16,
+  'Dec 24':17,'Nov 24':18,'Oct 24':19,'Sep 24':20,
+  'Aug 24':21,'Jul 24':22,'Jun 24':23,'May 24':24,
+  'Apr 24':25,'Mar 24':26,'Feb 24':27,'Jan 24':28,
+  'Dec 23':29,'Nov 23':30,'Oct 23':31,'Sep 23':32,
+  'Aug 23':33,'Jul 23':34,'Jun 23':35,'May 23':36,
+  'Apr 23':37,'Mar 23':38,'Feb 23':39,'Jan 23':40,
+  'Dec 22':41,'Nov 22':42,'Oct 22':43,'Sep 22':44,
+  'Aug 22':45,'Jul 22':46,'Jun 22':47,'May 22':48,
+  'Apr 22':49,'Mar 22':50,'Feb 22':51,'Jan 22':52,
+  'Dec 21':53,'Nov 21':54,'Oct 21':55,'Sep 21':56,
+  'Aug 21':57,'Jul 21':58,'Jun 21':59,'May 21':60,
+  'Apr 21':61,'Mar 21':62,'Feb 21':63,'Jan 21':64,
+  'Monthly':65,'PAYG':66,
+  // Future months — indices are placeholders; update when added to ClickUp dropdown
+  'Jun 26':67,'Jul 26':68,'Aug 26':69,'Sep 26':70,
+  'Oct 26':71,'Nov 26':72,'Dec 26':73,
 };
 
 const IDX_TO_BILLING = Object.fromEntries(

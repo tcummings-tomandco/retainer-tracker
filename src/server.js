@@ -141,6 +141,16 @@ app.get('/api/overview', requireAdmin, async (req, res) => {
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 
+// ── Nuke all caches (admin only — use after BILLING_TO_IDX changes) ──────────
+app.post('/api/admin/clear-all-caches', requireAdmin, async (req, res) => {
+  try {
+    const { db } = require('./firestore');
+    const docs = await db.collection('cache').listDocuments();
+    await Promise.all(docs.map(d => d.delete()));
+    res.json({ ok: true, cleared: docs.length });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
 // ── Force refresh (admin only) ────────────────────────────────
 app.post('/api/refresh/year', requireAdmin, async (req, res) => {
   try {

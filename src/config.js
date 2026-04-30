@@ -48,12 +48,23 @@ const IDX_TO_BILLING = Object.fromEntries(
   Object.entries(BILLING_TO_IDX).map(([k, v]) => [String(v), k])
 );
 
-const ALL_MONTHS = [
-  'Jan 25','Feb 25','Mar 25','Apr 25','May 25','Jun 25',
-  'Jul 25','Aug 25','Sep 25','Oct 25','Nov 25','Dec 25',
-  'Jan 26','Feb 26','Mar 26','Apr 26','May 26','Jun 26',
-  'Jul 26','Aug 26','Sep 26','Oct 26','Nov 26','Dec 26',
-];
+// Generated at startup — covers 2021 through 2 years ahead so new years
+// are picked up automatically without a code change.
+const _MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const _NOW_YEAR = new Date().getFullYear();
+const ALL_MONTHS = (function() {
+  const out = [];
+  for (let y = 2021; y <= _NOW_YEAR + 2; y++) {
+    const yy = String(y).slice(2);
+    _MO.forEach(function(m) { out.push(m + ' ' + yy); });
+  }
+  return out;
+}());
+
+// Returns 'Jan YY' for the current calendar year — use as the default yearStart.
+function currentYearStart() {
+  return 'Jan ' + String(_NOW_YEAR).slice(2);
+}
 
 const CLIENTS = [
   { name:'LeMieux',            spaceId:'38425510',     billingListId:'164518227',    retainerTasksListId:'164518228',    hasRetainerBudget:true  },
@@ -66,4 +77,4 @@ const CLIENTS = [
   { name:'Agent Provocateur',  spaceId:'8767978',      billingListId:'50772425',     retainerTasksListId:'50772426',     hasRetainerBudget:false },
 ];
 
-module.exports = { CLICKUP_BASE, CACHE_SECONDS, CF, PIPELINE_STATUSES, BILLING_TO_IDX, IDX_TO_BILLING, ALL_MONTHS, CLIENTS };
+module.exports = { CLICKUP_BASE, CACHE_SECONDS, CF, PIPELINE_STATUSES, BILLING_TO_IDX, IDX_TO_BILLING, ALL_MONTHS, currentYearStart, CLIENTS };

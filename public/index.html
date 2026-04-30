@@ -286,10 +286,7 @@
       <button id="btnRetail" class="active" onclick="setBudget('Retail')">Retail · 150h</button>
       <button id="btnTrade"  onclick="setBudget('Trade')">Trade · 50h</button>
     </div>
-    <select id="yearSel" onchange="onYearChange()">
-      <option value="Jan 25">2025</option>
-      <option value="Jan 26" selected>2026</option>
-    </select>
+    <select id="yearSel" onchange="onYearChange()"></select>
     <div class="view-tabs">
       <button id="tabOverview"  class="view-tab"         onclick="switchView('overview')">Overview</button>
       <button id="tabBalance"   class="view-tab active"  onclick="switchView('balance')">Balance</button>
@@ -315,7 +312,9 @@
 var firebaseUser = null, currentUser = null, isReadOnly = false;
 
 // ── State ──────────────────────────────────────────────────────
-var clients = [], selIdx = 0, budget = null, yearStart = 'Jan 26';
+var _CUR_YEAR = new Date().getFullYear();
+var _CUR_YY   = String(_CUR_YEAR).slice(2);
+var clients = [], selIdx = 0, budget = null, yearStart = 'Jan ' + _CUR_YY;
 var yearData = null, activeMonth = null;
 var pipelineData = null, activeView = 'balance';
 var taskAllocState = {}; // keyed by raw task ID: { taskName, confirmedTotal, allocations:[{hours,month}] }
@@ -341,12 +340,16 @@ var STATUS_META = {
   'in live approval':      { label:'Live Approval',    color:'#ef4444', group:'review' },
 };
 var PRI_COLOR = { urgent:'#ef4444', high:'#f97316', normal:null, low:'#818cf8' };
-var MONTHS_LIST = [
-  'Jan 25','Feb 25','Mar 25','Apr 25','May 25','Jun 25',
-  'Jul 25','Aug 25','Sep 25','Oct 25','Nov 25','Dec 25',
-  'Jan 26','Feb 26','Mar 26','Apr 26','May 26','Jun 26',
-  'Jul 26','Aug 26','Sep 26','Oct 26','Nov 26','Dec 26',
-];
+// Generated at page load — covers 2021 through 2 years ahead, mirrors server ALL_MONTHS
+var MONTHS_LIST = (function() {
+  var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var out = [];
+  for (var y = 2021; y <= _CUR_YEAR + 2; y++) {
+    var yy = String(y).slice(2);
+    mo.forEach(function(m) { out.push(m + ' ' + yy); });
+  }
+  return out;
+}());
 
 // ── API wrapper ────────────────────────────────────────────────
 var API_MAP = {
@@ -416,6 +419,18 @@ function initApp() {
       // Default to balance tab (not overview)
       if (activeView === 'overview') activeView = 'balance';
     }
+
+    // Populate year selector dynamically (2025 → current year + 1)
+    var yrSel = document.getElementById('yearSel');
+    yrSel.innerHTML = '';
+    for (var y = 2025; y <= _CUR_YEAR + 1; y++) {
+      var opt = document.createElement('option');
+      opt.value = 'Jan ' + String(y).slice(2);
+      opt.textContent = String(y);
+      if (y === _CUR_YEAR) opt.selected = true;
+      yrSel.appendChild(opt);
+    }
+    yearStart = yrSel.value;
 
     // Load clients list
     return run('getClients');
@@ -599,7 +614,7 @@ function renderYear(d) {
 
   document.getElementById('main').innerHTML =
     '<div class="year-section">'
-    +'<div class="section-title">Hours Balance · '+(yearStart.slice(-2)==='25'?'2025':'2026')+(budget?' · '+budget:'')+'</div>'
+    +'<div class="section-title">Hours Balance · '+'20'+yearStart.slice(-2)+(budget?' · '+budget:'')+'</div>'
     +'<div class="year-grid">'+cards+'</div></div>'
     +dd
     +'<div class="trend-wrap"><div class="trend-inner">'

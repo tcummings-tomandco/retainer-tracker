@@ -2,7 +2,7 @@
 require('dotenv').config();
 const express  = require('express');
 const path     = require('path');
-const { CLIENTS } = require('./config');
+const { CLIENTS, currentYearStart } = require('./config');
 const {
   getYearView, getMonthData, getPipelineData,
   forceRefreshYearView, forceRefreshPipelineData, refreshAllCaches,
@@ -59,7 +59,7 @@ app.get('/api/clients', (req, res) => {
 // ── Year view ─────────────────────────────────────────────────
 app.get('/api/year', async (req, res) => {
   try {
-    const { client = 0, budget, yearStart = 'Jan 26' } = req.query;
+    const { client = 0, budget, yearStart = currentYearStart() } = req.query;
     if (!assertClientAccess(req, res, client)) return;
     res.json(await getYearView(client, budget || null, yearStart));
   } catch (e) { res.json({ ok: false, error: e.message }); }
@@ -119,7 +119,7 @@ app.post('/api/projections', requireAdmin, async (req, res) => {
       ...budgets.flatMap(b =>
         months.map(m => deleteCache(`month_${idx}_${b || 'all'}_${m}`))
       ),
-      deleteCache('overview_Jan 26'),
+      deleteCache('overview_'+currentYearStart()),
     ]);
     res.json({ ok: true });
   } catch (e) { res.json({ ok: false, error: e.message }); }
@@ -128,7 +128,7 @@ app.post('/api/projections', requireAdmin, async (req, res) => {
 // ── Overview (admin only) ─────────────────────────────────────
 app.get('/api/overview', requireAdmin, async (req, res) => {
   try {
-    const { yearStart = 'Jan 26' } = req.query;
+    const { yearStart = currentYearStart() } = req.query;
     const cacheKey = `overview_${yearStart}`;
 
     const cached = await getCache(cacheKey);
@@ -154,7 +154,7 @@ app.get('/api/overview', requireAdmin, async (req, res) => {
 // year and pipeline data, so the Overview tab reflects the latest Refresh runs.
 app.post('/api/refresh/overview', requireAdmin, async (req, res) => {
   try {
-    const { yearStart = 'Jan 26' } = req.body;
+    const { yearStart = currentYearStart() } = req.body;
     const cacheKey = `overview_${yearStart}`;
     await deleteCache(cacheKey);
     const results = await Promise.all(CLIENTS.map(async (client, idx) => {
@@ -187,7 +187,7 @@ app.post('/api/admin/clear-all-caches', requireAdmin, async (req, res) => {
 // tab) so the frontend can render it immediately without a second round-trip.
 app.post('/api/refresh/year', requireAdmin, async (req, res) => {
   try {
-    const { client = 0, budget, yearStart = 'Jan 26' } = req.body;
+    const { client = 0, budget, yearStart = currentYearStart() } = req.body;
     const idx     = parseInt(client, 10);
     const budgets = CLIENTS[idx].hasRetainerBudget ? ['Retail', 'Trade'] : [null];
     const results = await Promise.all(budgets.map(b => forceRefreshYearView(idx, b, yearStart)));

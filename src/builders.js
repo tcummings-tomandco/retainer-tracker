@@ -1,5 +1,5 @@
 'use strict';
-const { ALL_MONTHS, CLIENTS } = require('./config');
+const { ALL_MONTHS, CLIENTS, currentYearStart } = require('./config');
 const { effectiveHours, currentBillingMonth, reapplyDateFlags, applyProjectionsToYear } = require('./helpers');
 const { fetchMonthlyTemplates, buildPaygDiscoveryCache, fetchTasksForMonth, fetchPipelineTasks } = require('./clickup');
 const { getCache, setCache, deleteCache } = require('./cache');
@@ -286,7 +286,7 @@ async function refreshAllCaches() {
 
     for (const budget of budgets) {
       const clientProjections = await getProjections(idx, budget);
-      for (const ys of ['Jan 26']) {
+      for (const ys of [currentYearStart()]) {
         try {
           const yrKey = `year_${idx}_${budget || 'all'}_${ys}`;
           const yr    = await buildYearView(idx, budget, ys, paygCache);
@@ -322,7 +322,7 @@ async function refreshAllCaches() {
   }
 
   // Build and cache the assembled overview (re-uses already-warmed per-client caches)
-  for (const ys of ['Jan 26']) {
+  for (const ys of [currentYearStart()]) {
     try {
       const overviewKey = `overview_${ys}`;
       await deleteCache(overviewKey);

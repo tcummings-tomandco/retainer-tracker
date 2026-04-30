@@ -352,6 +352,7 @@ var API_MAP = {
   saveProjection:           function(ci,tid,tn,ct,allocs){ return ['POST', '/api/projections',  { clientIndex:ci, budget:budget, taskId:tid, taskName:tn, confirmedTotal:ct, allocations:allocs }]; },
   forceRefreshPipelineData: function(ci)             { return ['POST', '/api/refresh/pipeline', { client:ci }]; },
   forceRefreshYearView:     function(ci, b, ys)      { return ['POST', '/api/refresh/year',     { client:ci, budget:b, yearStart:ys }]; },
+  forceRefreshOverview:     function(ys)             { return ['POST', '/api/refresh/overview',  { yearStart:ys }]; },
 };
 
 async function run(fn) {
@@ -1676,7 +1677,11 @@ function showLoading(msg) {
 function forceRefresh() {
   if (activeView === 'overview') {
     overviewData = null;
-    loadOverview();
+    document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Refreshing overview…</div></div>';
+    run('forceRefreshOverview', yearStart).then(function(data) {
+      overviewData = data;
+      renderOverview(data);
+    }).catch(function(e){ showError(e.message); });
     return;
   }
   if (activeView === 'pipeline') {

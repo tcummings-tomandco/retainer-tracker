@@ -141,6 +141,28 @@ app.get('/api/overview', requireAdmin, async (req, res) => {
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 
+// ── Force refresh overview (admin only) ───────────────────────────────────────
+// Busts the overview cache then rebuilds it from each client's (already-cached)
+// year and pipeline data, so the Overview tab reflects the latest Refresh runs.
+app.post('/api/refresh/overview', requireAdmin, async (req, res) => {
+  try {
+    const { yearStart = 'Jan 26' } = req.body;
+    const cacheKey = `overview_${yearStart}`;
+    await deleteCache(cacheKey);
+    const results = await Promise.all(CLIENTS.map(async (client, idx) => {
+      try {
+        const budgets    = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
+        const yearResults = await Promise.all(budgets.map(b => getYearView(idx, b, yearStart)));
+        const pipeline   = await getPipelineData(idx);
+        return { idx, name: client.name, budgets: budgets.map((b, i) => ({ budget: b, year: yearResults[i] })), pipeline };
+      } catch (e) { return { idx, name: client.name, error: e.message }; }
+    }));
+    const response = { ok: true, clients: results, cachedAt: new Date().toISOString() };
+    await setCache(cacheKey, response);
+    res.json(response);
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
 // ── Nuke all caches (admin only — use after BILLING_TO_IDX changes) ──────────
 app.post('/api/admin/clear-all-caches', requireAdmin, async (req, res) => {
   try {

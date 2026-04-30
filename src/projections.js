@@ -38,8 +38,20 @@ function projDocKey(clientIndex, budget) {
 
 async function getProjections(clientIndex, budget) {
   try {
-    const doc = await db.collection('projections').doc(projDocKey(clientIndex, budget)).get();
-    return doc.exists ? normalise(doc.data() || {}) : {};
+    const key = projDocKey(clientIndex, budget);
+    const doc = await db.collection('projections').doc(key).get();
+    if (doc.exists && Object.keys(doc.data() || {}).length > 0) {
+      return normalise(doc.data() || {});
+    }
+    // Backward-compat fallback: old data stored under clientIndex only (pre-budget-isolation)
+    if (budget) {
+      const legacyDoc = await db.collection('projections').doc(String(clientIndex)).get();
+      if (legacyDoc.exists && Object.keys(legacyDoc.data() || {}).length > 0) {
+        console.log(`Projections: falling back to legacy key "${clientIndex}" for client ${clientIndex} budget ${budget}`);
+        return normalise(legacyDoc.data() || {});
+      }
+    }
+    return {};
   } catch (e) {
     console.error('Projections read error:', e.message);
     return {};
@@ -52,7 +64,19 @@ async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTo
   try {
     const ref  = db.collection('projections').doc(projDocKey(clientIndex, budget));
     const doc  = await ref.get();
-    const data = doc.exists ? (doc.data() || {}) : {};
+    let data = doc.exists ? (doc.data() || {}) : {};
+
+    // If this is the first write to a budget-specific key, seed from the legacy
+    // clientIndex-only key so existing projections aren't silently lost.
+    if (!doc.exists && budget) {
+      try {
+        const legacyDoc = await db.collection('projections').doc(String(clientIndex)).get();
+        if (legacyDoc.exists && Object.keys(legacyDoc.data() || {}).length > 0) {
+          console.log(`Projections: seeding new key "${projDocKey(clientIndex, budget)}" from legacy key "${clientIndex}"`);
+          data = legacyDoc.data() || {};
+        }
+      } catch (e) { /* non-fatal — proceed with empty */ }
+    }
 
     // Allow month-only allocations (hours may be null) — used for roadmap bar
     // placement without committing hours to the balance forecast.

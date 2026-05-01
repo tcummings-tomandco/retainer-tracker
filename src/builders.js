@@ -111,8 +111,10 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
 
   if (!isFuture) {
     tasks = precomputedTasks || await fetchTasksForMonth(tid, month, budget, client.spaceId, paygCache || null, client.billingListId);
-    // Current month: also include roadmap allocations not yet billed in ClickUp
-    if (isCurrent) {
+    // Current and past months: include roadmap allocations not yet billed in ClickUp.
+    // Past months need this too — an allocation set to a previous month (e.g. Apr after
+    // we roll into May) should still appear in that month's drilldown so it stays visible.
+    {
       const seen = {};
       tasks.forEach(t => { seen[t.id] = true; });
       const projData = externalProjections || await getProjections(clientIndex, budget);

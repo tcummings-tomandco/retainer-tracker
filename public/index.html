@@ -719,10 +719,22 @@ function renderDrilldown(data) {
   // Closing balance comes from the year view calculation (spreadsheet-style cascade)
   // This is more reliable than reading ClickUp's Retainer Balance field
   var closingBal = null;
+  var isCurrentMonth = false;
   if (yearData) {
     var ym = yearData.months.find(function(m){ return m.month === data.month; });
-    if (ym) closingBal = ym.closingBalance;
+    if (ym) { closingBal = ym.closingBalance; isCurrentMonth = !!ym.isCurrent; }
   }
+
+  // For strictly past months, applyProjectionsToYear leaves closingBalance as ClickUp
+  // actuals only. If the drilldown includes unresolved roadmap projections (work planned
+  // but not yet billed in ClickUp), subtract them so the balance matches what's shown.
+  // Current and future months are already adjusted by applyProjectionsToYear — don't double-count.
+  var projHoursInDrilldown = (!data.isFuture && !isCurrentMonth) ? tasks.reduce(function(s,t){
+    return s + (t.isProjected || t.isConfirmedPipeline ? (t.quoteHours || 0) : 0);
+  }, 0) : 0;
+  var effectiveClosingBal = (closingBal !== null && projHoursInDrilldown > 0)
+    ? Math.round((closingBal - projHoursInDrilldown) * 10) / 10
+    : closingBal;
 
   var rows = tasks.map(function(t) {
     var isRoadmapEntry = t.isProjected || t.isConfirmedPipeline;
@@ -754,7 +766,7 @@ function renderDrilldown(data) {
     +'<td><span class="o" style="font-size:14px">−'+totalHours+'h</span>'
     +(totalCredit ? ' <span class="g" style="font-size:11px">+'+totalCredit+'h credit</span>' : '')
     +'</td>'
-    +'<td>'+(closingBal !== null ? '<span class="'+balCls(closingBal)+'" style="font-size:16px;font-weight:800">'+fmt(closingBal)+'</span>' : '—')+'</td>'
+    +'<td>'+(effectiveClosingBal !== null ? '<span class="'+balCls(effectiveClosingBal)+'" style="font-size:16px;font-weight:800">'+fmt(effectiveClosingBal)+'</span>' : '—')+'</td>'
     +'</tr>';
 
   el.innerHTML = '<table><thead><tr>'

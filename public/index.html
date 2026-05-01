@@ -725,16 +725,9 @@ function renderDrilldown(data) {
     if (ym) { closingBal = ym.closingBalance; isCurrentMonth = !!ym.isCurrent; }
   }
 
-  // For strictly past months, applyProjectionsToYear leaves closingBalance as ClickUp
-  // actuals only. If the drilldown includes unresolved roadmap projections (work planned
-  // but not yet billed in ClickUp), subtract them so the balance matches what's shown.
-  // Current and future months are already adjusted by applyProjectionsToYear — don't double-count.
-  var projHoursInDrilldown = (!data.isFuture && !isCurrentMonth) ? tasks.reduce(function(s,t){
-    return s + (t.isProjected || t.isConfirmedPipeline ? (t.quoteHours || 0) : 0);
-  }, 0) : 0;
-  var effectiveClosingBal = (closingBal !== null && projHoursInDrilldown > 0)
-    ? Math.round((closingBal - projHoursInDrilldown) * 10) / 10
-    : closingBal;
+  // applyProjectionsToYear now handles past, current, and future months uniformly —
+  // the closingBal from yearData already has roadmap projections deducted for all months.
+  var effectiveClosingBal = closingBal;
 
   var rows = tasks.map(function(t) {
     var isRoadmapEntry = t.isProjected || t.isConfirmedPipeline;

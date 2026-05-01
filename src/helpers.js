@@ -156,8 +156,20 @@ function applyProjectionsToYear(data, projections) {
   const credit = data.monthlyCredit || 0;
   let prevClosing = null;
   data.months = data.months.map(m => {
-    // Past months: use ClickUp actuals as-is, just track running balance
-    if (!m.isFuture && !m.isCurrent) { prevClosing = m.closingBalance; return m; }
+    // Past months: ClickUp actuals are the base, but subtract any roadmap projections
+    // that haven't been billed yet — same treatment as the current month so tiles and
+    // the roadmap balance strip stay consistent with the drilldown.
+    if (!m.isFuture && !m.isCurrent) {
+      const projCost = Math.round(projByMonth[m.month] || 0);
+      if (!projCost) { prevClosing = m.closingBalance; return m; }
+      const newClosing = Math.round((m.closingBalance - projCost) * 10) / 10;
+      prevClosing = newClosing;
+      return Object.assign({}, m, {
+        hoursOut:       (m.hoursOut || 0) + projCost,
+        closingBalance: newClosing,
+        projectedHours: projCost,
+      });
+    }
 
     const projCost = Math.round(projByMonth[m.month] || 0);
 

@@ -963,8 +963,19 @@ function getOrInitAllocState(taskId) {
 }
 
 function renderAllocRows(taskId) {
-  var s      = getOrInitAllocState(taskId);
-  var months = roadmapMonths();
+  var s = getOrInitAllocState(taskId);
+  // Use a broader month list for the dropdown — not the gantt view window —
+  // so allocations set to past months (e.g. Apr when we're now in May) remain
+  // visible and editable rather than showing as "↳ month" (unmatched option).
+  // Shows Jan of previous year through Dec of next year.
+  var prevYY  = String(_CUR_YEAR - 1).slice(2);
+  var nextYY  = String(_CUR_YEAR + 1).slice(2);
+  var dropStart = MONTHS_LIST.indexOf('Jan ' + prevYY);
+  var dropEnd   = MONTHS_LIST.indexOf('Dec ' + nextYY);
+  var months = MONTHS_LIST.slice(
+    dropStart < 0 ? 0 : dropStart,
+    dropEnd   < 0 ? MONTHS_LIST.length : dropEnd + 1
+  );
   var html   = '';
   s.allocations.forEach(function(a, i) {
     html += '<div class="alloc-row">'

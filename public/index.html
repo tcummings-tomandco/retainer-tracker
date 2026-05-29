@@ -503,9 +503,12 @@ function switchView(v) {
   document.getElementById('tabRoadmap').className   = 'view-tab' + (v === 'roadmap'   ? ' active' : '');
   var toggle = document.getElementById('budgetToggle');
   if (toggle) toggle.style.display = (v === 'balance' && clients[selIdx] && clients[selIdx].hasRetainerBudget) ? 'flex' : 'none';
-  // Hide client-specific controls on overview
-  var clientControls = ['clientSel', 'yearSel', 'budgetToggle'];
-  clientControls.forEach(function(id) {
+  // Hide client selector and year picker on overview tab.
+  // budgetToggle is intentionally excluded — its visibility is fully controlled
+  // by the dedicated if/else above (balance+hasRetainerBudget → flex, else → none).
+  // Including it here would reset display:'' which lets the CSS flex default
+  // override the none set above, causing the toggle to show on wrong tabs/clients.
+  ['clientSel', 'yearSel'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = (v === 'overview') ? 'none' : '';
   });

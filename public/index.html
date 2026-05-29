@@ -1546,7 +1546,7 @@ function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
     var leftHandle  = (isPreWork && !isReadOnly) ? '<div class="gantt-drag-handle gdh-left" onmousedown="startBarDrag(event,\''+t.id+'\',\'left\')" title="Drag to move start month">⋮</div>' : '';
     var rightHandle = (isPreWork && !isReadOnly) ? '<div class="gantt-drag-handle gdh-right" onmousedown="startBarDrag(event,\''+t.id+'\',\'right\')" title="Drag to move end month">⋮</div>' : '';
     monthTds += '<td class="gantt-bar-cell'+(months[bc.start]===nowMonth?' gantt-now-col':'')+'" colspan="'+span+'">'
-      +'<div class="gantt-bar" title="'+esc(barLbl)+'" style="background:'+meta.color+'55;border:1.5px solid '+meta.color+'bb;color:'+meta.color+';margin-left:'+mlPct+'%;margin-right:'+mrPct+'%">'
+      +'<div class="gantt-bar" title="'+esc(barLbl)+'" style="background:'+meta.color+'dd;border:1.5px solid '+meta.color+';color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.25);margin-left:'+mlPct+'%;margin-right:'+mrPct+'%">'
       +leftHandle
       +'<span class="gantt-bar-lbl">'+esc(barLbl)+'</span>'
       +rightHandle

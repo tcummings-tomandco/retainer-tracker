@@ -12,6 +12,7 @@ const CF = {
 };
 
 const PIPELINE_STATUSES = [
+  'ideas',
   'in scoping', 'client quote feedback', 'quote given',
   'in discovery', 'in refinement', 'scheduled',
   'in progress', 'in client approval', 'in live approval',

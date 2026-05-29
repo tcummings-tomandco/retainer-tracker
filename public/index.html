@@ -325,12 +325,14 @@ var roadmapRenderState = null; // { tasks, projections, months, nowMonth } — k
 
 // ── Pipeline constants ─────────────────────────────────────────
 var PIPELINE_ORDER = [
+  'ideas',
   'in scoping','client quote feedback','quote given',
   'in discovery','in refinement','scheduled',
   'in progress','in client approval','in live approval',
 ];
 var STATUS_META = {
-  'in scoping':            { label:'In Scoping',      color:'#8b5cf6', group:'pre'    },
+  'ideas':                 { label:'Ideas',            color:'#c4b5fd', group:'pre'    },
+  'in scoping':            { label:'In Scoping',       color:'#8b5cf6', group:'pre'    },
   'client quote feedback': { label:'Quote Feedback',   color:'#a78bfa', group:'pre'    },
   'quote given':           { label:'Quote Given',      color:'#7c3aed', group:'pre'    },
   'in discovery':          { label:'In Discovery',     color:'#6366f1', group:'pre'    },

@@ -372,7 +372,7 @@ var API_MAP = {
   getMonthData:             function(ci, b, m)       { return ['GET',  '/api/month',            { client:ci, budget:b, month:m }]; },
   getPipelineData:          function(ci)             { return ['GET',  '/api/pipeline',         { client:ci }]; },
   getProjections:           function(ci)             { return ['GET',  '/api/projections',      { client:ci, budget:budget }]; },
-  saveProjection:           function(ci,tid,tn,ct,allocs,bs,be){ return ['POST', '/api/projections',  { clientIndex:ci, budget:budget, taskId:tid, taskName:tn, confirmedTotal:ct, allocations:allocs, barStart:bs||null, barEnd:be||null }]; },
+  saveProjection:           function(ci,tid,tn,ct,allocs,bs,be,bsf,bef){ return ['POST', '/api/projections',  { clientIndex:ci, budget:budget, taskId:tid, taskName:tn, confirmedTotal:ct, allocations:allocs, barStart:bs||null, barEnd:be||null, barStartFrac:bsf!=null?bsf:null, barEndFrac:bef!=null?bef:null }]; },
   forceRefreshPipelineData: function(ci)             { return ['POST', '/api/refresh/pipeline', { client:ci }]; },
   forceRefreshYearView:     function(ci, b, ys)      { return ['POST', '/api/refresh/year',     { client:ci, budget:b, yearStart:ys }]; },
   forceRefreshOverview:     function(ys)             { return ['POST', '/api/refresh/overview',  { yearStart:ys }]; },
@@ -974,7 +974,7 @@ function taskBarCols(t, months) {
 
 // ── Roadmap allocation helpers ─────────────────────────────────
 function getOrInitAllocState(taskId) {
-  if (!taskAllocState[taskId]) taskAllocState[taskId] = { taskName:'', confirmedTotal:null, allocations:[], barStart:null, barEnd:null };
+  if (!taskAllocState[taskId]) taskAllocState[taskId] = { taskName:'', confirmedTotal:null, allocations:[], barStart:null, barEnd:null, barStartFrac:0, barEndFrac:1 };
   return taskAllocState[taskId];
 }
 
@@ -1079,7 +1079,9 @@ function persistAllocations(taskId) {
   var s      = getOrInitAllocState(taskId);
   // Include month-only rows (no hours) — they drive bar placement without affecting balance
   var allocs = s.allocations.filter(function(a){ return a.month; });
-  run('saveProjection', selIdx, taskId, s.taskName, s.confirmedTotal, allocs.length ? allocs : null, s.barStart || null, s.barEnd || null)
+  run('saveProjection', selIdx, taskId, s.taskName, s.confirmedTotal, allocs.length ? allocs : null,
+      s.barStart || null, s.barEnd || null,
+      s.barStartFrac != null ? s.barStartFrac : null, s.barEndFrac != null ? s.barEndFrac : null)
     .then(function() {
       var tid  = taskId.replace(/[^a-zA-Z0-9]/g, '_');
       var wrap = document.getElementById('alloc-wrap-'+tid);
@@ -1096,7 +1098,9 @@ function persistAllocations(taskId) {
 function persistBarSpan(taskId) {
   var s      = getOrInitAllocState(taskId);
   var allocs = s.allocations.filter(function(a){ return a.month; });
-  run('saveProjection', selIdx, taskId, s.taskName, s.confirmedTotal, allocs.length ? allocs : null, s.barStart || null, s.barEnd || null)
+  run('saveProjection', selIdx, taskId, s.taskName, s.confirmedTotal, allocs.length ? allocs : null,
+      s.barStart || null, s.barEnd || null,
+      s.barStartFrac != null ? s.barStartFrac : null, s.barEndFrac != null ? s.barEndFrac : null)
     .catch(function() {});
 }
 
@@ -1156,9 +1160,11 @@ function renderRoadmap(tasks, projections, yearViewData) {
       taskName:       t.name || '',
       confirmedTotal: proj ? (proj.confirmedTotal != null ? proj.confirmedTotal : (t.quoteHours != null ? t.quoteHours : null)) : (t.quoteHours != null ? t.quoteHours : null),
       allocations:    proj && proj.allocations ? proj.allocations.slice() : [],
-      // barStart/barEnd: manually-set Gantt bar span for pre-work tasks (persisted in Firestore)
-      barStart:       proj ? (proj.barStart || null) : null,
-      barEnd:         proj ? (proj.barEnd   || null) : null,
+      // barStart/barEnd + fracs: manually-set Gantt bar span for pre-work tasks (persisted in Firestore)
+      barStart:     proj ? (proj.barStart || null) : null,
+      barEnd:       proj ? (proj.barEnd   || null) : null,
+      barStartFrac: proj ? (proj.barStartFrac != null ? proj.barStartFrac : 0) : 0,
+      barEndFrac:   proj ? (proj.barEndFrac   != null ? proj.barEndFrac   : 1) : 1,
     };
   });
 
@@ -1287,11 +1293,13 @@ function getPreWorkBarCols(taskId, months) {
     var allEi  = s.barEnd   ? MONTHS_LIST.indexOf(s.barEnd)   : viewEi;
     if (allSi < 0) allSi = viewSi;
     if (allEi < 0) allEi = viewEi;
-    // Clamp to current view
+    // Clamp to current view; reset fracs for any clamped side
     var clSi = Math.max(allSi, viewSi);
     var clEi = Math.min(allEi, viewEi);
     if (clSi > clEi) return null; // completely outside current view
-    return { start: clSi - viewSi, end: clEi - viewSi + 1, startFrac: 0, dueFrac: 1 };
+    var sf = clSi > allSi ? 0 : (s.barStartFrac != null ? s.barStartFrac : 0);
+    var ef = clEi < allEi ? 1 : (s.barEndFrac   != null ? s.barEndFrac   : 1);
+    return { start: clSi - viewSi, end: clEi - viewSi + 1, startFrac: sf, dueFrac: ef };
   }
 
   // Fallback: derive span from allocation months
@@ -1329,19 +1337,22 @@ function clearBarSpan(taskId) {
 }
 
 // ── Gantt bar drag ─────────────────────────────────────────────
-// Finds which month column the given clientX falls in by hit-testing header TH elements.
-function monthFromMouseX(clientX, months) {
+// Returns { month, frac } where frac is 0–1 within that column.
+// Clamps to the first/last visible column if clientX is outside the gantt.
+function monthAndFracFromMouseX(clientX, months) {
   var ths = document.querySelectorAll('.gantt-th-month');
   for (var i = 0; i < ths.length && i < months.length; i++) {
     var r = ths[i].getBoundingClientRect();
-    if (clientX >= r.left && clientX <= r.right) return months[i];
+    if (clientX >= r.left && clientX <= r.right) {
+      return { month: months[i], frac: Math.max(0, Math.min(1, (clientX - r.left) / r.width)) };
+    }
   }
-  // Clamp to first/last if outside
+  // Clamp to edges
   if (ths.length && months.length) {
     var first = ths[0].getBoundingClientRect();
     var last  = ths[Math.min(ths.length, months.length) - 1].getBoundingClientRect();
-    if (clientX < first.left) return months[0];
-    if (clientX > last.right) return months[months.length - 1];
+    if (clientX < first.left) return { month: months[0], frac: 0 };
+    if (clientX > last.right) return { month: months[months.length - 1], frac: 1 };
   }
   return null;
 }
@@ -1359,25 +1370,36 @@ function startBarDrag(e, taskId, handle) {
 
 function onBarDragMove(e) {
   if (!ganttDrag) return;
-  var month = monthFromMouseX(e.clientX, ganttDrag.months);
-  if (!month) return;
-  var s = getOrInitAllocState(ganttDrag.taskId);
+  var res = monthAndFracFromMouseX(e.clientX, ganttDrag.months);
+  if (!res) return;
+  var month  = res.month;
+  var frac   = res.frac;
+  var s      = getOrInitAllocState(ganttDrag.taskId);
   var months = ganttDrag.months;
 
   if (ganttDrag.handle === 'left') {
-    // Don't allow start past current end
-    var endIdx   = months.indexOf(s.barEnd || months[months.length - 1]);
-    var newIdx   = months.indexOf(month);
+    // Don't allow start past (or coincident fraction with) end
+    var endIdx = months.indexOf(s.barEnd != null ? s.barEnd : months[months.length - 1]);
+    var newIdx = months.indexOf(month);
     if (endIdx < 0) endIdx = months.length - 1;
-    if (newIdx > endIdx) month = months[endIdx];
-    s.barStart = month;
+    if (newIdx > endIdx || (newIdx === endIdx && frac >= (s.barEndFrac != null ? s.barEndFrac : 1))) {
+      // clamp: don't allow start to cross the end position
+      newIdx = endIdx;
+      frac   = Math.max(0, (s.barEndFrac != null ? s.barEndFrac : 1) - 0.01);
+    }
+    s.barStart     = months[newIdx];
+    s.barStartFrac = frac;
   } else {
-    // Don't allow end before current start
-    var startIdx = months.indexOf(s.barStart || months[0]);
+    // Don't allow end before (or coincident fraction with) start
+    var startIdx = months.indexOf(s.barStart != null ? s.barStart : months[0]);
     var newIdx   = months.indexOf(month);
     if (startIdx < 0) startIdx = 0;
-    if (newIdx < startIdx) month = months[startIdx];
-    s.barEnd = month;
+    if (newIdx < startIdx || (newIdx === startIdx && frac <= (s.barStartFrac != null ? s.barStartFrac : 0))) {
+      newIdx = startIdx;
+      frac   = Math.min(1, (s.barStartFrac != null ? s.barStartFrac : 0) + 0.01);
+    }
+    s.barEnd     = months[newIdx];
+    s.barEndFrac = frac;
   }
   refreshGanttRow(ganttDrag.taskId);
 }
@@ -1428,7 +1450,7 @@ function toggleAllocWrap(taskId) {
 function ganttTaskRow(t, months, projections, nowMonth) {
   var meta      = STATUS_META[t.status] || { color:'#64748b' };
   var tid       = t.id.replace(/[^a-zA-Z0-9]/g, '_');
-  var s         = taskAllocState[t.id] || { taskName:t.name, confirmedTotal: t.quoteHours != null ? t.quoteHours : null, allocations:[], barStart:null, barEnd:null };
+  var s         = taskAllocState[t.id] || { taskName:t.name, confirmedTotal: t.quoteHours != null ? t.quoteHours : null, allocations:[], barStart:null, barEnd:null, barStartFrac:0, barEndFrac:1 };
   var isPreWork = meta.group === 'pre'; // hoisted: used in both name cell and bar section
 
   // Name cell

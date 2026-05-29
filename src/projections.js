@@ -65,7 +65,7 @@ async function getProjections(clientIndex, budget) {
 // confirmedTotal — the confirmed quote total (number) or null for estimates.
 // barStart / barEnd — optional month strings ('May 26') for the visual Gantt bar span on
 //   pre-work tasks.  These are independent of allocations and do not affect balance.
-async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTotal, allocations, barStart, barEnd) {
+async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTotal, allocations, barStart, barEnd, barStartFrac, barEndFrac) {
   try {
     const ref  = db.collection('projections').doc(projDocKey(clientIndex, budget));
     const doc  = await ref.get();
@@ -99,10 +99,13 @@ async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTo
         confirmedTotal: confirmedTotal != null ? Number(confirmedTotal) : null,
         allocations:    validAllocs.map(a => ({ hours: Number(a.hours), month: a.month })),
       };
-      // barStart / barEnd are purely visual — persist them alongside allocations
-      // so the Gantt bar span survives page reloads.
-      if (barStart) data[taskId].barStart = barStart;
-      if (barEnd)   data[taskId].barEnd   = barEnd;
+      // barStart / barEnd (and optional fractions) are purely visual — persist them
+      // alongside allocations so the Gantt bar span survives page reloads.
+      if (barStart != null) data[taskId].barStart = barStart;
+      if (barEnd   != null) data[taskId].barEnd   = barEnd;
+      // barStartFrac / barEndFrac: 0–1 fraction within the start/end month column
+      if (typeof barStartFrac === 'number') data[taskId].barStartFrac = barStartFrac;
+      if (typeof barEndFrac   === 'number') data[taskId].barEndFrac   = barEndFrac;
     }
     await ref.set(data);
     return normalise(data);

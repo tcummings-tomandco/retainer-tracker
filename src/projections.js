@@ -63,7 +63,9 @@ async function getProjections(clientIndex, budget) {
 
 // allocations — array of { hours, month } or null/[] to clear the entry.
 // confirmedTotal — the confirmed quote total (number) or null for estimates.
-async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTotal, allocations) {
+// barStart / barEnd — optional month strings ('May 26') for the visual Gantt bar span on
+//   pre-work tasks.  These are independent of allocations and do not affect balance.
+async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTotal, allocations, barStart, barEnd) {
   try {
     const ref  = db.collection('projections').doc(projDocKey(clientIndex, budget));
     const doc  = await ref.get();
@@ -89,7 +91,7 @@ async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTo
       ? allocations.filter(a => a && a.month)
       : [];
 
-    if (!validAllocs.length) {
+    if (!validAllocs.length && !barStart && !barEnd) {
       delete data[taskId];
     } else {
       data[taskId] = {
@@ -97,6 +99,10 @@ async function saveProjection(clientIndex, budget, taskId, taskName, confirmedTo
         confirmedTotal: confirmedTotal != null ? Number(confirmedTotal) : null,
         allocations:    validAllocs.map(a => ({ hours: Number(a.hours), month: a.month })),
       };
+      // barStart / barEnd are purely visual — persist them alongside allocations
+      // so the Gantt bar span survives page reloads.
+      if (barStart) data[taskId].barStart = barStart;
+      if (barEnd)   data[taskId].barEnd   = barEnd;
     }
     await ref.set(data);
     return normalise(data);

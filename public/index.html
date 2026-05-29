@@ -195,8 +195,16 @@
   .gantt-cell      { border-left:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--surface); vertical-align:middle; padding:4px 3px; }
   .gantt-cell.gantt-now-col { background:#fffbeb; border-left-color:#fcd34d; }
   .gantt-bar-cell  { padding:4px 3px; vertical-align:middle; }
-  .gantt-bar       { border-radius:5px; min-height:26px; display:flex; align-items:center; justify-content:center; padding:3px 8px; font-weight:600; overflow:hidden; min-width:4px; }
-  .gantt-bar-lbl   { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word; text-align:center; font-size:clamp(8px,1.05vw,11px); line-height:1.35; width:100%; }
+  .gantt-bar       { border-radius:5px; min-height:26px; display:flex; align-items:center; justify-content:center; padding:3px 8px; font-weight:600; overflow:hidden; min-width:4px; position:relative; }
+  .gantt-bar-lbl   { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word; text-align:center; font-size:clamp(8px,1.05vw,11px); line-height:1.35; flex:1; min-width:0; }
+  /* Drag handles — visible on hover, hidden otherwise */
+  .gantt-drag-handle { position:absolute; top:0; bottom:0; width:11px; display:flex; align-items:center; justify-content:center; cursor:col-resize; opacity:0; font-size:10px; transition:opacity .12s; user-select:none; }
+  .gantt-drag-handle.gdh-left  { left:0; border-radius:5px 0 0 5px; }
+  .gantt-drag-handle.gdh-right { right:0; border-radius:0 5px 5px 0; }
+  .gantt-bar:hover .gantt-drag-handle { opacity:.55; }
+  .gantt-drag-handle:hover { opacity:1 !important; background:rgba(0,0,0,.12); }
+  body.gantt-dragging { cursor:col-resize !important; user-select:none; }
+  body.gantt-dragging * { cursor:col-resize !important; }
 
   /* Projected hours inputs */
   .proj-row    { display:flex; align-items:center; gap:5px; margin-top:4px; flex-wrap:wrap; }
@@ -317,11 +325,12 @@ var _CUR_YY   = String(_CUR_YEAR).slice(2);
 var clients = [], selIdx = 0, budget = null, yearStart = 'Jan ' + _CUR_YY;
 var yearData = null, activeMonth = null;
 var pipelineData = null, activeView = 'balance';
-var taskAllocState = {}; // keyed by raw task ID: { taskName, confirmedTotal, allocations:[{hours,month}] }
+var taskAllocState = {}; // keyed by raw task ID: { taskName, confirmedTotal, allocations:[{hours,month}], barStart, barEnd }
 var openAllocTasks  = {}; // keyed by raw task ID: true when allocation panel is expanded
 var collapsedGroups = {}; // keyed by group key ('pre','active','review'): true when collapsed
 var roadmapYear = _CUR_YEAR; // which year the gantt columns show
 var roadmapRenderState = null; // { tasks, projections, months, nowMonth } — kept for live row refresh
+var ganttDrag = null; // active bar drag state: { taskId, handle:'left'|'right', months }
 
 // ── Pipeline constants ─────────────────────────────────────────
 var PIPELINE_ORDER = [
@@ -363,7 +372,7 @@ var API_MAP = {
   getMonthData:             function(ci, b, m)       { return ['GET',  '/api/month',            { client:ci, budget:b, month:m }]; },
   getPipelineData:          function(ci)             { return ['GET',  '/api/pipeline',         { client:ci }]; },
   getProjections:           function(ci)             { return ['GET',  '/api/projections',      { client:ci, budget:budget }]; },
-  saveProjection:           function(ci,tid,tn,ct,allocs){ return ['POST', '/api/projections',  { clientIndex:ci, budget:budget, taskId:tid, taskName:tn, confirmedTotal:ct, allocations:allocs }]; },
+  saveProjection:           function(ci,tid,tn,ct,allocs,bs,be){ return ['POST', '/api/projections',  { clientIndex:ci, budget:budget, taskId:tid, taskName:tn, confirmedTotal:ct, allocations:allocs, barStart:bs||null, barEnd:be||null }]; },
   forceRefreshPipelineData: function(ci)             { return ['POST', '/api/refresh/pipeline', { client:ci }]; },
   forceRefreshYearView:     function(ci, b, ys)      { return ['POST', '/api/refresh/year',     { client:ci, budget:b, yearStart:ys }]; },
   forceRefreshOverview:     function(ys)             { return ['POST', '/api/refresh/overview',  { yearStart:ys }]; },
@@ -965,11 +974,11 @@ function taskBarCols(t, months) {
 
 // ── Roadmap allocation helpers ─────────────────────────────────
 function getOrInitAllocState(taskId) {
-  if (!taskAllocState[taskId]) taskAllocState[taskId] = { taskName:'', confirmedTotal:null, allocations:[] };
+  if (!taskAllocState[taskId]) taskAllocState[taskId] = { taskName:'', confirmedTotal:null, allocations:[], barStart:null, barEnd:null };
   return taskAllocState[taskId];
 }
 
-function renderAllocRows(taskId) {
+function renderAllocRows(taskId, isPreWork) {
   var s = getOrInitAllocState(taskId);
   // Use a broader month list for the dropdown — not the gantt view window —
   // so allocations set to past months (e.g. Apr when we're now in May) remain
@@ -995,6 +1004,21 @@ function renderAllocRows(taskId) {
       +'</div>';
   });
   html += '<button class="alloc-add" onclick="addAllocRow(\''+taskId+'\')">+ Add month</button>';
+  // For pre-work tasks: show timeline drag controls so user can set/clear the bar span
+  if (isPreWork) {
+    var hasBar = !!(s.barStart || s.barEnd);
+    var barInfo = hasBar
+      ? '<span style="font-size:9px;color:#6d28d9;margin-left:4px">'+(s.barStart||'?')+' → '+(s.barEnd||'?')+'</span>'
+      : '';
+    html += '<div style="margin-top:5px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">';
+    if (!hasBar) {
+      html += '<button class="alloc-add" onclick="initBarSpan(\''+taskId+'\')" title="Set a draggable Gantt bar for this task">📅 Set timeline bar</button>';
+    } else {
+      html += '<button class="alloc-rm" onclick="clearBarSpan(\''+taskId+'\')" title="Remove manual timeline bar — falls back to allocation span">× Clear bar</button>';
+      html += barInfo;
+    }
+    html += '</div>';
+  }
   return html;
 }
 
@@ -1002,7 +1026,13 @@ function refreshAllocWrap(taskId) {
   var tid  = taskId.replace(/[^a-zA-Z0-9]/g, '_');
   var wrap = document.getElementById('alloc-wrap-'+tid);
   var btn  = document.getElementById('alloc-toggle-'+tid);
-  if (wrap) wrap.innerHTML = renderAllocRows(taskId);
+  // Detect pre-work status from the current render state
+  var isPreWork = false;
+  if (roadmapRenderState) {
+    var task = roadmapRenderState.tasks.find(function(t){ return t.id === taskId; });
+    if (task) isPreWork = (STATUS_META[task.status] || {}).group === 'pre';
+  }
+  if (wrap) wrap.innerHTML = renderAllocRows(taskId, isPreWork);
   // Update toggle button label/style to reflect new allocation count/hours
   if (btn && wrap && wrap.style.display === 'none') {
     btn.textContent = allocToggleLabel(taskId);
@@ -1049,7 +1079,7 @@ function persistAllocations(taskId) {
   var s      = getOrInitAllocState(taskId);
   // Include month-only rows (no hours) — they drive bar placement without affecting balance
   var allocs = s.allocations.filter(function(a){ return a.month; });
-  run('saveProjection', selIdx, taskId, s.taskName, s.confirmedTotal, allocs.length ? allocs : null)
+  run('saveProjection', selIdx, taskId, s.taskName, s.confirmedTotal, allocs.length ? allocs : null, s.barStart || null, s.barEnd || null)
     .then(function() {
       var tid  = taskId.replace(/[^a-zA-Z0-9]/g, '_');
       var wrap = document.getElementById('alloc-wrap-'+tid);
@@ -1061,6 +1091,13 @@ function persistAllocations(taskId) {
       refreshRoadmapBalanceStrip();
     })
     .catch(function() { yearData = null; });
+}
+
+function persistBarSpan(taskId) {
+  var s      = getOrInitAllocState(taskId);
+  var allocs = s.allocations.filter(function(a){ return a.month; });
+  run('saveProjection', selIdx, taskId, s.taskName, s.confirmedTotal, allocs.length ? allocs : null, s.barStart || null, s.barEnd || null)
+    .catch(function() {});
 }
 
 // ── Roadmap: load & render ─────────────────────────────────────
@@ -1119,6 +1156,9 @@ function renderRoadmap(tasks, projections, yearViewData) {
       taskName:       t.name || '',
       confirmedTotal: proj ? (proj.confirmedTotal != null ? proj.confirmedTotal : (t.quoteHours != null ? t.quoteHours : null)) : (t.quoteHours != null ? t.quoteHours : null),
       allocations:    proj && proj.allocations ? proj.allocations.slice() : [],
+      // barStart/barEnd: manually-set Gantt bar span for pre-work tasks (persisted in Firestore)
+      barStart:       proj ? (proj.barStart || null) : null,
+      barEnd:         proj ? (proj.barEnd   || null) : null,
     };
   });
 
@@ -1232,12 +1272,30 @@ function renderGantt(tasks, projections, months, groups) {
     +'</div>';
 }
 
-// Returns bar column span based on manually-allocated months (for pre-work tasks).
-// Spans from the earliest to the latest allocated month visible in the gantt.
-// Falls back to null if no allocated months are in view.
+// Returns bar column span for pre-work tasks.
+// Priority: dragged barStart/barEnd → allocation-derived span → null (no bar).
+// Uses MONTHS_LIST-based clamping so bars that partially overlap the current view still render.
 function getPreWorkBarCols(taskId, months) {
   var s = taskAllocState[taskId];
-  if (!s || !s.allocations || !s.allocations.length) return null;
+  if (!s) return null;
+
+  if (s.barStart || s.barEnd) {
+    // Map into MONTHS_LIST absolute indices so we can clamp across year boundaries
+    var viewSi = MONTHS_LIST.indexOf(months[0]);
+    var viewEi = MONTHS_LIST.indexOf(months[months.length - 1]);
+    var allSi  = s.barStart ? MONTHS_LIST.indexOf(s.barStart) : viewSi;
+    var allEi  = s.barEnd   ? MONTHS_LIST.indexOf(s.barEnd)   : viewEi;
+    if (allSi < 0) allSi = viewSi;
+    if (allEi < 0) allEi = viewEi;
+    // Clamp to current view
+    var clSi = Math.max(allSi, viewSi);
+    var clEi = Math.min(allEi, viewEi);
+    if (clSi > clEi) return null; // completely outside current view
+    return { start: clSi - viewSi, end: clEi - viewSi + 1, startFrac: 0, dueFrac: 1 };
+  }
+
+  // Fallback: derive span from allocation months
+  if (!s.allocations || !s.allocations.length) return null;
   var indices = s.allocations
     .filter(function(a){ return a.month; })
     .map(function(a){ return months.indexOf(a.month); })
@@ -1246,6 +1304,92 @@ function getPreWorkBarCols(taskId, months) {
   var start = Math.min.apply(null, indices);
   var end   = Math.max.apply(null, indices) + 1; // exclusive
   return { start: start, end: end, startFrac: 0, dueFrac: 1 };
+}
+
+// ── Pre-work bar span helpers ──────────────────────────────────
+// Sets an initial single-month bar span at the current roadmap month (or first visible).
+function initBarSpan(taskId) {
+  var s      = getOrInitAllocState(taskId);
+  var months = roadmapRenderState ? roadmapRenderState.months : [];
+  var anchor = months[0] || null;
+  if (!anchor) return;
+  s.barStart = anchor;
+  s.barEnd   = anchor;
+  refreshGanttRow(taskId);
+  persistBarSpan(taskId);
+}
+
+// Clears the manually-set bar span (bar will fall back to allocation-derived span or disappear).
+function clearBarSpan(taskId) {
+  var s = getOrInitAllocState(taskId);
+  s.barStart = null;
+  s.barEnd   = null;
+  refreshGanttRow(taskId);
+  persistBarSpan(taskId);
+}
+
+// ── Gantt bar drag ─────────────────────────────────────────────
+// Finds which month column the given clientX falls in by hit-testing header TH elements.
+function monthFromMouseX(clientX, months) {
+  var ths = document.querySelectorAll('.gantt-th-month');
+  for (var i = 0; i < ths.length && i < months.length; i++) {
+    var r = ths[i].getBoundingClientRect();
+    if (clientX >= r.left && clientX <= r.right) return months[i];
+  }
+  // Clamp to first/last if outside
+  if (ths.length && months.length) {
+    var first = ths[0].getBoundingClientRect();
+    var last  = ths[Math.min(ths.length, months.length) - 1].getBoundingClientRect();
+    if (clientX < first.left) return months[0];
+    if (clientX > last.right) return months[months.length - 1];
+  }
+  return null;
+}
+
+function startBarDrag(e, taskId, handle) {
+  e.preventDefault();
+  e.stopPropagation();
+  var months = roadmapRenderState ? roadmapRenderState.months : [];
+  if (!months.length) return;
+  ganttDrag = { taskId: taskId, handle: handle, months: months };
+  document.body.classList.add('gantt-dragging');
+  document.addEventListener('mousemove', onBarDragMove);
+  document.addEventListener('mouseup',   onBarDragEnd);
+}
+
+function onBarDragMove(e) {
+  if (!ganttDrag) return;
+  var month = monthFromMouseX(e.clientX, ganttDrag.months);
+  if (!month) return;
+  var s = getOrInitAllocState(ganttDrag.taskId);
+  var months = ganttDrag.months;
+
+  if (ganttDrag.handle === 'left') {
+    // Don't allow start past current end
+    var endIdx   = months.indexOf(s.barEnd || months[months.length - 1]);
+    var newIdx   = months.indexOf(month);
+    if (endIdx < 0) endIdx = months.length - 1;
+    if (newIdx > endIdx) month = months[endIdx];
+    s.barStart = month;
+  } else {
+    // Don't allow end before current start
+    var startIdx = months.indexOf(s.barStart || months[0]);
+    var newIdx   = months.indexOf(month);
+    if (startIdx < 0) startIdx = 0;
+    if (newIdx < startIdx) month = months[startIdx];
+    s.barEnd = month;
+  }
+  refreshGanttRow(ganttDrag.taskId);
+}
+
+function onBarDragEnd(e) {
+  if (!ganttDrag) return;
+  var taskId = ganttDrag.taskId;
+  ganttDrag  = null;
+  document.body.classList.remove('gantt-dragging');
+  document.removeEventListener('mousemove', onBarDragMove);
+  document.removeEventListener('mouseup',   onBarDragEnd);
+  persistBarSpan(taskId);
 }
 
 // ── Group section collapse ─────────────────────────────────────
@@ -1282,9 +1426,10 @@ function toggleAllocWrap(taskId) {
 }
 
 function ganttTaskRow(t, months, projections, nowMonth) {
-  var meta  = STATUS_META[t.status] || { color:'#64748b' };
-  var tid   = t.id.replace(/[^a-zA-Z0-9]/g, '_');
-  var s     = taskAllocState[t.id] || { taskName:t.name, confirmedTotal: t.quoteHours != null ? t.quoteHours : null, allocations:[] };
+  var meta      = STATUS_META[t.status] || { color:'#64748b' };
+  var tid       = t.id.replace(/[^a-zA-Z0-9]/g, '_');
+  var s         = taskAllocState[t.id] || { taskName:t.name, confirmedTotal: t.quoteHours != null ? t.quoteHours : null, allocations:[], barStart:null, barEnd:null };
+  var isPreWork = meta.group === 'pre'; // hoisted: used in both name cell and bar section
 
   // Name cell
   var link = t.url ? '<a href="'+t.url+'" target="_blank" title="'+esc(t.name)+'">'+esc(t.name)+'</a>'
@@ -1318,7 +1463,7 @@ function ganttTaskRow(t, months, projections, nowMonth) {
     metaRow   = '<div class="gantt-name-meta">'+priHtml+statusTag+confirmBadge
       +'<button id="alloc-toggle-'+tid+'" class="'+togCls+'" onclick="toggleAllocWrap(\''+t.id+'\')">'+togLbl+'</button>'
       +'</div>';
-    allocPanel = '<div id="alloc-wrap-'+tid+'" class="alloc-wrap" style="'+(isOpen?'':'display:none')+'">'+renderAllocRows(t.id)+'</div>';
+    allocPanel = '<div id="alloc-wrap-'+tid+'" class="alloc-wrap" style="'+(isOpen?'':'display:none')+'">'+renderAllocRows(t.id, isPreWork)+'</div>';
   }
 
   var nameTd = '<td class="gantt-name-cell">'
@@ -1328,9 +1473,8 @@ function ganttTaskRow(t, months, projections, nowMonth) {
     +'</div></td>';
 
   // Month cells with bar
-  // Pre-work: bar driven by manually allocated months; fallback to ClickUp dates if none set.
+  // Pre-work: bar driven by barStart/barEnd drag span or allocated months; fallback to ClickUp dates.
   // In Flight / In Review: always use ClickUp start/due dates.
-  var isPreWork = (STATUS_META[t.status] || {}).group === 'pre';
   var bc = isPreWork
     ? (getPreWorkBarCols(t.id, months) || taskBarCols(t, months))
     : taskBarCols(t, months);
@@ -1343,13 +1487,18 @@ function ganttTaskRow(t, months, projections, nowMonth) {
       monthTds += '<td class="gantt-cell'+(months[i]===nowMonth?' gantt-now-col':'')+'"></td>';
     }
     var span    = bc.end - bc.start;
-    // Bar label: confirmed total or sum of allocations
-    var barLbl = t.name || '';
+    var barLbl  = t.name || '';
     var mlPct   = (bc.startFrac / span * 100).toFixed(1);
     var mrPct   = ((1 - bc.dueFrac) / span * 100).toFixed(1);
+    // Add drag handles to pre-work bars (admin only) so the user can set timeline by dragging
+    var leftHandle  = (isPreWork && !isReadOnly) ? '<div class="gantt-drag-handle gdh-left" onmousedown="startBarDrag(event,\''+t.id+'\',\'left\')" title="Drag to move start month">⋮</div>' : '';
+    var rightHandle = (isPreWork && !isReadOnly) ? '<div class="gantt-drag-handle gdh-right" onmousedown="startBarDrag(event,\''+t.id+'\',\'right\')" title="Drag to move end month">⋮</div>' : '';
     monthTds += '<td class="gantt-bar-cell'+(months[bc.start]===nowMonth?' gantt-now-col':'')+'" colspan="'+span+'">'
       +'<div class="gantt-bar" title="'+esc(barLbl)+'" style="background:'+meta.color+'22;border:1px solid '+meta.color+'60;color:'+meta.color+';margin-left:'+mlPct+'%;margin-right:'+mrPct+'%">'
-      +'<span class="gantt-bar-lbl">'+esc(barLbl)+'</span></div></td>';
+      +leftHandle
+      +'<span class="gantt-bar-lbl">'+esc(barLbl)+'</span>'
+      +rightHandle
+      +'</div></td>';
     for (var j = bc.end; j < months.length; j++) {
       monthTds += '<td class="gantt-cell'+(months[j]===nowMonth?' gantt-now-col':'')+'"></td>';
     }

@@ -97,7 +97,7 @@ app.get('/api/projections', async (req, res) => {
 // Body: { clientIndex, taskId, taskName, confirmedTotal, allocations: [{hours, month}] }
 app.post('/api/projections', requireAdmin, async (req, res) => {
   try {
-    const { clientIndex, budget, taskId, taskName, confirmedTotal, allocations } = req.body;
+    const { clientIndex, budget, taskId, taskName, confirmedTotal, allocations, barStart, barEnd } = req.body;
     const idx     = parseInt(clientIndex, 10);
     // Read OLD months for this task before saving, so we can bust their caches too.
     // Without this, moving a task from Sep to Jun would leave Sep's cached drilldown
@@ -106,7 +106,7 @@ app.post('/api/projections', requireAdmin, async (req, res) => {
     const oldMonths = oldProjections[taskId]
       ? (oldProjections[taskId].allocations || []).map(a => a.month).filter(Boolean)
       : [];
-    await saveProjection(idx, budget || null, taskId, taskName, confirmedTotal, allocations);
+    await saveProjection(idx, budget || null, taskId, taskName, confirmedTotal, allocations, barStart || null, barEnd || null);
     const client  = CLIENTS[idx];
     const budgets = client.hasRetainerBudget ? ['Retail', 'Trade'] : [null];
     // Bust month drilldown caches for ALL affected months — both old (removed) and new.

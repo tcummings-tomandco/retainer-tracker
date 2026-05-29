@@ -8,6 +8,7 @@ const {
   forceRefreshYearView, forceRefreshPipelineData, refreshAllCaches,
 } = require('./builders');
 const { getProjections, saveProjection } = require('./projections');
+const { getTaskOrder, saveTaskOrder }     = require('./task-order');
 const { getCache, setCache, deleteCache }            = require('./cache');
 const { requireAuth, requireAdmin, assertClientAccess } = require('./auth');
 const { listUsers, createUser, updateUser, deleteUser, getInviteLink } = require('./users');
@@ -124,6 +125,24 @@ app.post('/api/projections', requireAdmin, async (req, res) => {
       ),
       deleteCache('overview_'+currentYearStart()),
     ]);
+    res.json({ ok: true });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+// ── Task order (roadmap row sort) ────────────────────────────
+app.get('/api/task-order', async (req, res) => {
+  try {
+    const { client = 0 } = req.query;
+    if (!assertClientAccess(req, res, client)) return;
+    const order = await getTaskOrder(parseInt(client, 10));
+    res.json({ ok: true, order });
+  } catch (e) { res.json({ ok: false, error: e.message, order: {} }); }
+});
+
+app.post('/api/task-order', requireAdmin, async (req, res) => {
+  try {
+    const { clientIndex, order } = req.body;
+    await saveTaskOrder(parseInt(clientIndex, 10), order || {});
     res.json({ ok: true });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });

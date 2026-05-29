@@ -206,6 +206,14 @@
   body.gantt-dragging { cursor:col-resize !important; user-select:none; }
   body.gantt-dragging * { cursor:col-resize !important; }
 
+  /* Row drag-to-reorder */
+  .row-drag-handle { cursor:grab; color:var(--muted); font-size:13px; padding:0 5px 0 0; flex-shrink:0; opacity:0; user-select:none; line-height:1; }
+  tr:hover .row-drag-handle { opacity:.35; }
+  .row-drag-handle:hover { opacity:.8 !important; }
+  .row-drag-handle:active { cursor:grabbing; }
+  tr.drag-over-above > td { border-top:2px solid var(--blue) !important; }
+  tr.drag-over-below > td { border-bottom:2px solid var(--blue) !important; }
+
   /* Projected hours inputs */
   .proj-row    { display:flex; align-items:center; gap:5px; margin-top:4px; flex-wrap:wrap; }
   .proj-label  { font-size:9px; color:var(--muted); white-space:nowrap; }
@@ -328,9 +336,11 @@ var pipelineData = null, activeView = 'balance';
 var taskAllocState = {}; // keyed by raw task ID: { taskName, confirmedTotal, allocations:[{hours,month}], barStart, barEnd }
 var openAllocTasks  = {}; // keyed by raw task ID: true when allocation panel is expanded
 var collapsedGroups = {}; // keyed by group key ('pre','active','review'): true when collapsed
+var taskOrderState  = {}; // keyed by group key: array of task IDs in display order
 var roadmapYear = _CUR_YEAR; // which year the gantt columns show
-var roadmapRenderState = null; // { tasks, projections, months, nowMonth } — kept for live row refresh
-var ganttDrag = null; // active bar drag state: { taskId, handle:'left'|'right', months }
+var roadmapRenderState = null; // { tasks, projections, months, nowMonth, groups } — kept for live row refresh
+var ganttDrag  = null; // active bar drag state: { taskId, handle:'left'|'right', months }
+var rowDragState = null; // active row-reorder drag: { taskId, groupKey }
 
 // ── Pipeline constants ─────────────────────────────────────────
 var PIPELINE_ORDER = [
@@ -376,6 +386,8 @@ var API_MAP = {
   forceRefreshPipelineData: function(ci)             { return ['POST', '/api/refresh/pipeline', { client:ci }]; },
   forceRefreshYearView:     function(ci, b, ys)      { return ['POST', '/api/refresh/year',     { client:ci, budget:b, yearStart:ys }]; },
   forceRefreshOverview:     function(ys)             { return ['POST', '/api/refresh/overview',  { yearStart:ys }]; },
+  getTaskOrder:             function(ci)             { return ['GET',  '/api/task-order',        { client:ci }]; },
+  saveTaskOrder:            function(ci, order)      { return ['POST', '/api/task-order',        { clientIndex:ci, order:order }]; },
 };
 
 async function run(fn) {
@@ -1110,13 +1122,14 @@ function loadRoadmap() {
   document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Building roadmap…</div></div>';
   document.getElementById('kpiStrip').innerHTML = '';
   document.getElementById('tplBar').style.display = 'none';
-  // Pipeline + projections are always cached — render the gantt immediately.
-  // Year data is fetched in the background so a cold year cache never blocks
-  // the roadmap from loading.
+  // Pipeline + projections + task order are always cached — render the gantt immediately.
+  // Year data is fetched in the background so a cold year cache never blocks the roadmap.
   Promise.all([
     run('getPipelineData', selIdx),
     run('getProjections', selIdx),
+    run('getTaskOrder', selIdx),
   ]).then(function(r) {
+    taskOrderState = r[2].order || {};
     renderRoadmap(r[0].tasks || [], r[1].projections || {}, yearData);
     refreshRoadmapBalanceStrip(); // fills the strip once year data arrives
   }).catch(function(e){ showError(e.message); });
@@ -1180,12 +1193,19 @@ function renderRoadmap(tasks, projections, yearViewData) {
     var m = STATUS_META[t.status];
     (gMap[m ? m.group : 'active'] || gMap.active).tasks.push(t);
   });
-  // Sort within groups by due date
+  // Sort within groups: custom drag order first, then by due date for unordered tasks
   groups.forEach(function(g){
-    g.tasks.sort(function(a,b){
-      var ai = a.dueMonth ? MONTHS_LIST.indexOf(a.dueMonth) : 999;
-      var bi = b.dueMonth ? MONTHS_LIST.indexOf(b.dueMonth) : 999;
-      return ai - bi;
+    var order = (taskOrderState && taskOrderState[g.key]) || [];
+    g.tasks.sort(function(a, b){
+      var ai = order.indexOf(a.id);
+      var bi = order.indexOf(b.id);
+      if (ai >= 0 && bi >= 0) return ai - bi;        // both ordered: use saved order
+      if (ai >= 0) return -1;                         // a ordered, b not: a first
+      if (bi >= 0) return 1;                          // b ordered, a not: b first
+      // neither ordered: fall back to due date
+      var ad = a.dueMonth ? MONTHS_LIST.indexOf(a.dueMonth) : 999;
+      var bd = b.dueMonth ? MONTHS_LIST.indexOf(b.dueMonth) : 999;
+      return ad - bd;
     });
   });
 
@@ -1210,7 +1230,7 @@ function renderRoadmap(tasks, projections, yearViewData) {
       +'<div class="kpi-sub">'+k.sub+'</div></div>';
   }).join('');
 
-  roadmapRenderState = { tasks: tasks, projections: projections, months: months, nowMonth: months[0], yearData: yearViewData };
+  roadmapRenderState = { tasks: tasks, projections: projections, months: months, nowMonth: months[0], yearData: yearViewData, groups: groups };
   document.getElementById('main').innerHTML = renderGantt(tasks, projections, months, groups);
   // Populate balance strip (element exists after innerHTML set above)
   var strip = document.getElementById('roadmap-balance-strip');
@@ -1251,7 +1271,7 @@ function renderGantt(tasks, projections, months, groups) {
       +'</td></tr>'
       +'</tbody>';
     var taskRows = '';
-    g.tasks.forEach(function(t){ taskRows += ganttTaskRow(t, months, projections, now); });
+    g.tasks.forEach(function(t){ taskRows += ganttTaskRow(t, months, projections, now, g.key); });
     allTbodies += '<tbody id="gantt-group-'+g.key+'" style="'+(collapsed?'display:none':'')+'">'
       +taskRows
       +'</tbody>';
@@ -1447,9 +1467,10 @@ function toggleAllocWrap(taskId) {
   if (btn) { btn.textContent = opening ? '▾ Hide' : allocToggleLabel(taskId); btn.className = opening ? 'alloc-toggle' : allocToggleCls(taskId); }
 }
 
-function ganttTaskRow(t, months, projections, nowMonth) {
+function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
   var meta      = STATUS_META[t.status] || { color:'#64748b' };
   var tid       = t.id.replace(/[^a-zA-Z0-9]/g, '_');
+  var gk        = groupKey || meta.group || 'active';
   var s         = taskAllocState[t.id] || { taskName:t.name, confirmedTotal: t.quoteHours != null ? t.quoteHours : null, allocations:[], barStart:null, barEnd:null, barStartFrac:0, barEndFrac:1 };
   var isPreWork = meta.group === 'pre'; // hoisted: used in both name cell and bar section
 
@@ -1488,8 +1509,17 @@ function ganttTaskRow(t, months, projections, nowMonth) {
     allocPanel = '<div id="alloc-wrap-'+tid+'" class="alloc-wrap" style="'+(isOpen?'':'display:none')+'">'+renderAllocRows(t.id, isPreWork)+'</div>';
   }
 
+  // Row drag handle (admin only — read-only users can't reorder)
+  var rowHandle = !isReadOnly
+    ? '<div class="row-drag-handle" draggable="true"'
+      +' ondragstart="onRowDragStart(event,\''+t.id+'\',\''+gk+'\')"'
+      +' ondragend="onRowDragEnd(event)"'
+      +' title="Drag to reorder">⠿</div>'
+    : '';
+
   var nameTd = '<td class="gantt-name-cell">'
     +'<div class="gantt-name-inner">'
+    +rowHandle
     +'<span class="gantt-dot" style="background:'+meta.color+'"></span>'
     +'<div class="gantt-name-text">'+link+metaRow+'<div class="gantt-hrs">'+allocPanel+'</div></div>'
     +'</div></td>';
@@ -1526,7 +1556,12 @@ function ganttTaskRow(t, months, projections, nowMonth) {
     }
   }
 
-  return '<tr id="gantt-row-'+tid+'">'+nameTd+monthTds+'</tr>';
+  var rowDragAttrs = !isReadOnly
+    ? ' ondragover="onRowDragOver(event,\''+t.id+'\',\''+gk+'\')"'
+      +' ondrop="onRowDrop(event,\''+t.id+'\',\''+gk+'\')"'
+      +' ondragleave="onRowDragLeave(event,\''+t.id+'\')"'
+    : '';
+  return '<tr id="gantt-row-'+tid+'"'+rowDragAttrs+'>'+nameTd+monthTds+'</tr>';
 }
 
 function refreshGanttRow(taskId) {
@@ -1536,10 +1571,166 @@ function refreshGanttRow(taskId) {
   if (!row) return;
   var t = roadmapRenderState.tasks.find(function(x){ return x.id === taskId; });
   if (!t) return;
-  var html = ganttTaskRow(t, roadmapRenderState.months, roadmapRenderState.projections, roadmapRenderState.nowMonth);
+  // Look up which group this task belongs to so drag handles are correct
+  var groupKey = '';
+  if (roadmapRenderState.groups) {
+    roadmapRenderState.groups.forEach(function(g) {
+      if (g.tasks.some(function(x){ return x.id === taskId; })) groupKey = g.key;
+    });
+  }
+  var html = ganttTaskRow(t, roadmapRenderState.months, roadmapRenderState.projections, roadmapRenderState.nowMonth, groupKey);
   var tmp  = document.createElement('tbody');
   tmp.innerHTML = html;
   row.parentNode.replaceChild(tmp.firstChild, row);
+}
+
+// ── Row drag-to-reorder ────────────────────────────────────────
+function onRowDragStart(e, taskId, groupKey) {
+  rowDragState = { taskId: taskId, groupKey: groupKey };
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', taskId);
+  // Dim the dragged row slightly
+  var tid = taskId.replace(/[^a-zA-Z0-9]/g, '_');
+  var row = document.getElementById('gantt-row-' + tid);
+  if (row) row.style.opacity = '0.45';
+}
+
+function onRowDragEnd(e) {
+  // Restore opacity and remove all drop indicators
+  if (rowDragState) {
+    var tid = rowDragState.taskId.replace(/[^a-zA-Z0-9]/g, '_');
+    var row = document.getElementById('gantt-row-' + tid);
+    if (row) row.style.opacity = '';
+  }
+  rowDragState = null;
+  document.querySelectorAll('.drag-over-above,.drag-over-below').forEach(function(el) {
+    el.classList.remove('drag-over-above', 'drag-over-below');
+  });
+}
+
+function onRowDragOver(e, taskId, groupKey) {
+  if (!rowDragState) return;
+  if (rowDragState.groupKey !== groupKey) return; // cross-group: not a valid drop target
+  if (rowDragState.taskId === taskId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  var tid = taskId.replace(/[^a-zA-Z0-9]/g, '_');
+  var row = document.getElementById('gantt-row-' + tid);
+  if (!row) return;
+  // Remove previous indicator from all rows
+  document.querySelectorAll('.drag-over-above,.drag-over-below').forEach(function(el) {
+    if (el !== row) { el.classList.remove('drag-over-above','drag-over-below'); }
+  });
+  var rect  = row.getBoundingClientRect();
+  var above = e.clientY < rect.top + rect.height / 2;
+  row.classList.toggle('drag-over-above',  above);
+  row.classList.toggle('drag-over-below', !above);
+}
+
+function onRowDragLeave(e, taskId) {
+  var tid = taskId.replace(/[^a-zA-Z0-9]/g, '_');
+  var row = document.getElementById('gantt-row-' + tid);
+  if (row) row.classList.remove('drag-over-above', 'drag-over-below');
+}
+
+function onRowDrop(e, taskId, groupKey) {
+  e.preventDefault();
+  var tid = taskId.replace(/[^a-zA-Z0-9]/g, '_');
+  var row = document.getElementById('gantt-row-' + tid);
+  if (row) row.classList.remove('drag-over-above', 'drag-over-below');
+
+  if (!rowDragState || rowDragState.groupKey !== groupKey || rowDragState.taskId === taskId) {
+    onRowDragEnd(null);
+    return;
+  }
+
+  var srcId   = rowDragState.taskId;
+  var srcTid  = srcId.replace(/[^a-zA-Z0-9]/g, '_');
+  var srcRow  = document.getElementById('gantt-row-' + srcTid);
+  if (srcRow) srcRow.style.opacity = '';
+  rowDragState = null;
+
+  // Determine insert above/below
+  var dropRow  = document.getElementById('gantt-row-' + tid);
+  var above    = dropRow ? e.clientY < dropRow.getBoundingClientRect().top + dropRow.getBoundingClientRect().height / 2 : true;
+
+  // Get current ordered task IDs for this group
+  var group = roadmapRenderState && roadmapRenderState.groups
+    ? roadmapRenderState.groups.find(function(g){ return g.key === groupKey; })
+    : null;
+  if (!group) return;
+
+  // Build current display order from DOM (respects any previous reorderings)
+  var tbody   = document.getElementById('gantt-group-' + groupKey);
+  var allRows = tbody ? Array.prototype.slice.call(tbody.querySelectorAll('tr[id^="gantt-row-"]')) : [];
+  var ids     = allRows.map(function(r) {
+    return r.id.replace('gantt-row-', '').replace(/_/g, function(m, i, s) {
+      // We can't perfectly reverse the sanitise regex, so use the task list instead
+      return '_';
+    });
+  });
+
+  // Better: map from group tasks (already in correct display order because we sorted by taskOrderState)
+  var taskIds = group.tasks.map(function(t){ return t.id; });
+  // Re-order based on current DOM if it's been manually reordered this session
+  var domOrder = [];
+  allRows.forEach(function(r) {
+    var match = taskIds.find(function(id) {
+      return 'gantt-row-' + id.replace(/[^a-zA-Z0-9]/g,'_') === r.id;
+    });
+    if (match) domOrder.push(match);
+  });
+  // Fall back to group task list if DOM order couldn't be determined
+  if (!domOrder.length) domOrder = taskIds.slice();
+
+  // Perform the reorder
+  var srcIdx = domOrder.indexOf(srcId);
+  if (srcIdx >= 0) domOrder.splice(srcIdx, 1);
+  var tgtIdx = domOrder.indexOf(taskId);
+  if (tgtIdx < 0) tgtIdx = domOrder.length;
+  else if (!above) tgtIdx++;
+  domOrder.splice(tgtIdx, 0, srcId);
+
+  // Update taskOrderState for this group
+  if (!taskOrderState) taskOrderState = {};
+  taskOrderState[groupKey] = domOrder;
+
+  // Also update the in-memory group tasks order so refreshGanttRow uses the right groupKey
+  group.tasks.sort(function(a, b) {
+    return domOrder.indexOf(a.id) - domOrder.indexOf(b.id);
+  });
+
+  // Move DOM rows without re-rendering (fast, preserves open allocation panels)
+  reorderGroupDomRows(groupKey, domOrder);
+
+  // Persist to Firestore
+  persistTaskOrder();
+}
+
+function reorderGroupDomRows(groupKey, orderedIds) {
+  var tbody = document.getElementById('gantt-group-' + groupKey);
+  if (!tbody) return;
+  // Collect all rows in this tbody
+  var allRows   = Array.prototype.slice.call(tbody.querySelectorAll('tr[id^="gantt-row-"]'));
+  // Build id → element map
+  var rowMap    = {};
+  allRows.forEach(function(r) { rowMap[r.id] = r; });
+  // Append in new order (DOM move, no re-render)
+  orderedIds.forEach(function(id) {
+    var domId = 'gantt-row-' + id.replace(/[^a-zA-Z0-9]/g, '_');
+    if (rowMap[domId]) tbody.appendChild(rowMap[domId]);
+  });
+  // Any rows whose IDs aren't in orderedIds go to the end (new tasks added since last save)
+  allRows.forEach(function(r) {
+    var inOrder = orderedIds.some(function(id) {
+      return 'gantt-row-' + id.replace(/[^a-zA-Z0-9]/g,'_') === r.id;
+    });
+    if (!inOrder) tbody.appendChild(r);
+  });
+}
+
+function persistTaskOrder() {
+  run('saveTaskOrder', selIdx, taskOrderState).catch(function() {});
 }
 
 // ── Pipeline: load & render ────────────────────────────────────
@@ -1999,8 +2190,11 @@ function forceRefresh() {
     Promise.all([
       run('forceRefreshPipelineData', selIdx),
       run('getProjections', selIdx),
-    ]).then(function(r){ renderRoadmap(r[0].tasks || [], (r[1].projections || {})); })
-      .catch(function(e){ showError(e.message); });
+      run('getTaskOrder', selIdx),
+    ]).then(function(r){
+      taskOrderState = r[2].order || {};
+      renderRoadmap(r[0].tasks || [], (r[1].projections || {}));
+    }).catch(function(e){ showError(e.message); });
   } else {
     yearData = null;
     showLoading('Refreshing…');

@@ -76,6 +76,16 @@ const CLIENTS = [
   { name:"Millie's Cookies",   spaceId:'8735321',      billingListId:'134514344',    retainerTasksListId:'48763971',     hasRetainerBudget:false },
   { name:'Time Products',      spaceId:'10806984',     billingListId:'61333095',     retainerTasksListId:'61333096',     hasRetainerBudget:false },
   { name:'Agent Provocateur',  spaceId:'8767978',      billingListId:'50772425',     retainerTasksListId:'50772426',     hasRetainerBudget:false },
+  { name:'Oliver Bonas',       spaceId:'8707331',      billingListId:'46786797',     retainerTasksListId:'46786794',     hasRetainerBudget:false },
+  { name:'Topps Tiles',        spaceId:'8705891',      billingListId:'46778704',     retainerTasksListId:'46778701',     hasRetainerBudget:false },
+  { name:'Sanderson',          spaceId:'90123353943',  billingListId:'901208758529', retainerTasksListId:'901208758543', hasRetainerBudget:false },
+  { name:'Folio Society',      spaceId:'90123305284',  billingListId:'901208636148', retainerTasksListId:'901208636180', hasRetainerBudget:false },
+  { name:'Habitus Group',      spaceId:'90126593099',  billingListId:'901216209723', retainerTasksListId:'901216209725', hasRetainerBudget:false },
+  { name:'Scouts',             spaceId:'8775972',      billingListId:'50821309',     retainerTasksListId:'50821310',     hasRetainerBudget:false },
+  { name:'Button & Sprung',    spaceId:'90120153751',  billingListId:'901200670381', retainerTasksListId:'901200670382', hasRetainerBudget:false },
+  { name:'John Lobb',          spaceId:'5830685',      billingListId:'22660421',     retainerTasksListId:'22660422',     hasRetainerBudget:false },
+  { name:'PGR Timber',         spaceId:'90120361690',  billingListId:'901201311822', retainerTasksListId:'901201311820', hasRetainerBudget:false },
+  { name:'Acoustical Solutions',spaceId:'90123743010', billingListId:'901209603538', retainerTasksListId:'901209603544', hasRetainerBudget:false },
 ];
 
 module.exports = { CLICKUP_BASE, CACHE_SECONDS, CF, PIPELINE_STATUSES, BILLING_TO_IDX, IDX_TO_BILLING, ALL_MONTHS, currentYearStart, CLIENTS };

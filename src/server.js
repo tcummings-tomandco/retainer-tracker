@@ -9,6 +9,7 @@ const {
 } = require('./builders');
 const { getProjections, saveProjection } = require('./projections');
 const { getTaskOrder, saveTaskOrder }     = require('./task-order');
+const { getOnHold, saveOnHold }           = require('./on-hold');
 const { getCache, setCache, deleteCache }            = require('./cache');
 const { requireAuth, requireAdmin, assertClientAccess } = require('./auth');
 const { listUsers, createUser, updateUser, deleteUser, getInviteLink } = require('./users');
@@ -143,6 +144,24 @@ app.post('/api/task-order', requireAdmin, async (req, res) => {
   try {
     const { clientIndex, order } = req.body;
     await saveTaskOrder(parseInt(clientIndex, 10), order || {});
+    res.json({ ok: true });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+// ── On Hold (app-managed pipeline parking) ───────────────────
+app.get('/api/on-hold', async (req, res) => {
+  try {
+    const { client = 0 } = req.query;
+    if (!assertClientAccess(req, res, client)) return;
+    const taskIds = await getOnHold(parseInt(client, 10));
+    res.json({ ok: true, taskIds });
+  } catch (e) { res.json({ ok: false, error: e.message, taskIds: [] }); }
+});
+
+app.post('/api/on-hold', requireAdmin, async (req, res) => {
+  try {
+    const { clientIndex, taskIds } = req.body;
+    await saveOnHold(parseInt(clientIndex, 10), taskIds || []);
     res.json({ ok: true });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });

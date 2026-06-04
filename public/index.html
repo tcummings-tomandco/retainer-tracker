@@ -122,6 +122,12 @@
   .task-card a:hover { color:#2563eb; }
   .task-meta      { margin-top:7px; display:flex; gap:5px; align-items:center; flex-wrap:wrap; }
   .kanban-divider { flex:0 0 1px; background:var(--border); align-self:stretch; margin:0 2px; opacity:.5; }
+  /* On Hold card checkbox + parked-task styling */
+  .task-card-top  { display:flex; align-items:flex-start; gap:7px; }
+  .task-card-top > a, .task-card-top > span { flex:1; min-width:0; }
+  .hold-check     { flex:0 0 auto; margin:1px 0 0; width:13px; height:13px; cursor:pointer; accent-color:#64748b; }
+  .task-card.on-hold { opacity:.8; border-style:dashed; background:#f8fafc; }
+  .kanban-col.k-onhold .k-tasks { background:repeating-linear-gradient(45deg,transparent,transparent 7px,rgba(100,116,139,.04) 7px,rgba(100,116,139,.04) 14px); border-radius:8px; padding:4px; }
 
   /* Priority badges */
   .pri         { display:inline-block; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
@@ -337,6 +343,7 @@ var taskAllocState = {}; // keyed by raw task ID: { taskName, confirmedTotal, al
 var openAllocTasks  = {}; // keyed by raw task ID: true when allocation panel is expanded
 var collapsedGroups = {}; // keyed by group key ('pre','active','review'): true when collapsed
 var taskOrderState  = {}; // keyed by group key: array of task IDs in display order
+var onHoldState     = []; // app-managed: array of task IDs parked in the On Hold column (off the roadmap)
 var roadmapYear = _CUR_YEAR; // which year the gantt columns show
 var roadmapRenderState = null; // { tasks, projections, months, nowMonth, groups } — kept for live row refresh
 var ganttDrag  = null; // active bar drag state: { taskId, handle:'left'|'right', months }
@@ -388,6 +395,8 @@ var API_MAP = {
   forceRefreshOverview:     function(ys)             { return ['POST', '/api/refresh/overview',  { yearStart:ys }]; },
   getTaskOrder:             function(ci)             { return ['GET',  '/api/task-order',        { client:ci }]; },
   saveTaskOrder:            function(ci, order)      { return ['POST', '/api/task-order',        { clientIndex:ci, order:order }]; },
+  getOnHold:                function(ci)             { return ['GET',  '/api/on-hold',           { client:ci }]; },
+  saveOnHold:               function(ci, taskIds)    { return ['POST', '/api/on-hold',           { clientIndex:ci, taskIds:taskIds }]; },
 };
 
 async function run(fn) {
@@ -1131,8 +1140,10 @@ function loadRoadmap() {
     run('getPipelineData', selIdx),
     run('getProjections', selIdx),
     run('getTaskOrder', selIdx),
+    run('getOnHold', selIdx),
   ]).then(function(r) {
     taskOrderState = r[2].order || {};
+    onHoldState    = r[3].taskIds || [];
     renderRoadmap(r[0].tasks || [], r[1].projections || {}, yearData);
     refreshRoadmapBalanceStrip(); // fills the strip once year data arrives
   }).catch(function(e){ showError(e.message); });
@@ -1166,6 +1177,8 @@ function refreshRoadmapBalanceStrip() {
 }
 
 function renderRoadmap(tasks, projections, yearViewData) {
+  // On-hold tasks are parked in the pipeline's On Hold column and excluded from the roadmap.
+  tasks = (tasks || []).filter(function(t){ return onHoldState.indexOf(t.id) === -1; });
   var months = roadmapMonths();
 
   // Initialise allocation state for every task from saved projections
@@ -1741,14 +1754,21 @@ function loadPipeline() {
   document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Loading pipeline…</div></div>';
   document.getElementById('kpiStrip').innerHTML = '';
   document.getElementById('tplBar').style.display = 'none';
-  run('getPipelineData', selIdx).then(function(data) {
-    pipelineData = data;
-    renderPipeline(data);
+  Promise.all([
+    run('getPipelineData', selIdx),
+    run('getOnHold', selIdx),
+  ]).then(function(r) {
+    pipelineData = r[0];
+    onHoldState  = r[1].taskIds || [];
+    renderPipeline(r[0]);
   }).catch(function(e) { showError(e.message); });
 }
 
 function renderPipeline(d) {
-  var tasks = d.tasks || [];
+  var allTasks = d.tasks || [];
+  // On-hold tasks are parked in their own column, excluded from status columns + KPIs.
+  var onHold = allTasks.filter(function(t){ return onHoldState.indexOf(t.id) !== -1; });
+  var tasks  = allTasks.filter(function(t){ return onHoldState.indexOf(t.id) === -1; });
 
   // ── Group by status ─────────────────────────────────────────
   var byStatus = {};
@@ -1757,29 +1777,22 @@ function renderPipeline(d) {
     if (byStatus[t.status] !== undefined) byStatus[t.status].push(t);
   });
 
-  // ── Group by due month ──────────────────────────────────────
-  var byMonth = {}, unscheduled = [];
-  tasks.forEach(function(t){
-    if (t.dueMonth) {
-      if (!byMonth[t.dueMonth]) byMonth[t.dueMonth] = [];
-      byMonth[t.dueMonth].push(t);
-    } else { unscheduled.push(t); }
-  });
-
   // ── KPIs ────────────────────────────────────────────────────
   var groups = { pre:0, active:0, review:0 };
   tasks.forEach(function(t){
     var m = STATUS_META[t.status];
     if (m) groups[m.group] = (groups[m.group] || 0) + 1;
   });
+  var scheduled = tasks.filter(function(t){ return !!t.dueMonth; }).length;
   document.getElementById('kpiStrip').innerHTML = [
     { label:'In Pipeline',     val: tasks.length,           sub: 'active tasks',         col:'#64748b' },
     { label:'Pre-work',        val: groups.pre,             sub: 'scoping / quoting',    col:'#a78bfa' },
     { label:'In Flight',       val: groups.active,          sub: 'discovery → progress', col:'#10b981' },
     { label:'In Review',       val: groups.review,          sub: 'approval stages',      col:'#f59e0b' },
+    { label:'On Hold',         val: onHold.length,          sub: 'parked off roadmap',   col:'#64748b' },
     { label:'Quoted Hours',    val: d.totalQuoted ? d.totalQuoted+'h' : '—', sub:'across pipeline', col:'#2563eb' },
-    { label:'Scheduled',       val: d.scheduledTasks,       sub: 'have a due date',      col:'#34d399' },
-    { label:'Unscheduled',     val: tasks.length - d.scheduledTasks, sub:'no due date yet', col:'#64748b' },
+    { label:'Scheduled',       val: scheduled,              sub: 'have a due date',      col:'#34d399' },
+    { label:'Unscheduled',     val: tasks.length - scheduled, sub:'no due date yet',     col:'#64748b' },
   ].map(function(k){
     return '<div class="kpi"><div class="kpi-label">'+k.label+'</div>'
       +'<div class="kpi-value" style="color:'+k.col+'">'+k.val+'</div>'
@@ -1787,12 +1800,13 @@ function renderPipeline(d) {
   }).join('');
 
   document.getElementById('tplBar').style.display = 'none';
-  document.getElementById('main').innerHTML = renderKanban(byStatus);
+  document.getElementById('main').innerHTML = renderKanban(byStatus, onHold);
   setTimeout(function(){ attachScrollFix('.kanban'); }, 0);
 }
 
 // ── Kanban ─────────────────────────────────────────────────────
-function renderKanban(byStatus) {
+function renderKanban(byStatus, onHold) {
+  onHold = onHold || [];
   var lastGroup = null;
   var cols = PIPELINE_ORDER.map(function(status) {
     var meta  = STATUS_META[status] || { label:status, color:'#64748b', group:'active' };
@@ -1801,7 +1815,7 @@ function renderKanban(byStatus) {
       ? '<div class="kanban-divider"></div>' : '';
     lastGroup = meta.group;
     var cards = tasks.length
-      ? tasks.map(function(t){ return taskCard(t, meta.color); }).join('')
+      ? tasks.map(function(t){ return taskCard(t, meta.color, false); }).join('')
       : '<div class="k-empty">Empty</div>';
     return divider
       + '<div class="kanban-col">'
@@ -1812,12 +1826,27 @@ function renderKanban(byStatus) {
       + '<div class="k-tasks">'+cards+'</div>'
       + '</div>';
   }).join('');
+
+  // ── On Hold column (app-managed, always shown) ──────────────
+  var holdColor = '#64748b';
+  var holdCards = onHold.length
+    ? onHold.map(function(t){ return taskCard(t, holdColor, true); }).join('')
+    : '<div class="k-empty">Tick a task to park it here</div>';
+  var holdCol = '<div class="kanban-divider"></div>'
+    + '<div class="kanban-col k-onhold">'
+    + '<div class="k-header" style="border-color:'+holdColor+'40">'
+    + '<div class="k-label" style="color:'+holdColor+'">On Hold</div>'
+    + '<div class="k-count">'+onHold.length+' task'+(onHold.length!==1?'s':'')+'</div>'
+    + '</div>'
+    + '<div class="k-tasks">'+holdCards+'</div>'
+    + '</div>';
+
   return '<div class="kanban-section">'
     + '<div class="section-title">Status Pipeline</div>'
-    + '<div class="kanban">'+cols+'</div></div>';
+    + '<div class="kanban">'+cols+holdCol+'</div></div>';
 }
 
-function taskCard(t, borderColor) {
+function taskCard(t, borderColor, isOnHold) {
   var link = t.url
     ? '<a href="'+t.url+'" target="_blank" title="'+esc(t.name)+'">'+esc(t.name)+'</a>'
     : '<span>'+esc(t.name)+'</span>';
@@ -1828,10 +1857,30 @@ function taskCard(t, borderColor) {
   }
   if (t.quoteHours != null) meta += '<span class="hrs-pill">'+t.quoteHours+'h</span>';
   if (t.dueMonth)           meta += '<span class="date-pill">'+t.dueMonth+'</span>';
-  return '<div class="task-card" style="border-left:3px solid '+borderColor+'40">'
-    + link
+  // Admins get a checkbox to park/unpark the task; read-only users just see status.
+  var checkbox = isReadOnly ? '' :
+    '<input type="checkbox" class="hold-check"'+(isOnHold?' checked':'')
+    +' title="'+(isOnHold?'On hold — untick to restore to roadmap':'Put on hold (removes from roadmap)')+'"'
+    +' onchange="toggleOnHold(\''+t.id+'\', this.checked)">';
+  return '<div class="task-card'+(isOnHold?' on-hold':'')+'" style="border-left:3px solid '+borderColor+'40">'
+    + '<div class="task-card-top">'+link+checkbox+'</div>'
     + (meta ? '<div class="task-meta">'+meta+'</div>' : '')
     + '</div>';
+}
+
+// Toggle a task's on-hold state, persist, and re-render the pipeline (and roadmap if active).
+function toggleOnHold(taskId, checked) {
+  if (isReadOnly) return;
+  var idx = onHoldState.indexOf(taskId);
+  if (checked && idx === -1) onHoldState.push(taskId);
+  else if (!checked && idx !== -1) onHoldState.splice(idx, 1);
+
+  // Re-render immediately for snappy UX
+  if (pipelineData) renderPipeline(pipelineData);
+
+  run('saveOnHold', selIdx, onHoldState).catch(function(e){
+    showError('Failed to save On Hold: ' + e.message);
+  });
 }
 
 // ── Timeline ───────────────────────────────────────────────────
@@ -2183,9 +2232,13 @@ function forceRefresh() {
     pipelineData = null;
     document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Refreshing pipeline…</div></div>';
     document.getElementById('kpiStrip').innerHTML = '';
-    run('forceRefreshPipelineData', selIdx).then(function(data) {
-      pipelineData = data;
-      renderPipeline(data);
+    Promise.all([
+      run('forceRefreshPipelineData', selIdx),
+      run('getOnHold', selIdx),
+    ]).then(function(r) {
+      pipelineData = r[0];
+      onHoldState  = r[1].taskIds || [];
+      renderPipeline(r[0]);
     }).catch(function(e){ showError(e.message); });
   } else if (activeView === 'roadmap') {
     document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Refreshing roadmap…</div></div>';
@@ -2194,8 +2247,10 @@ function forceRefresh() {
       run('forceRefreshPipelineData', selIdx),
       run('getProjections', selIdx),
       run('getTaskOrder', selIdx),
+      run('getOnHold', selIdx),
     ]).then(function(r){
       taskOrderState = r[2].order || {};
+      onHoldState    = r[3].taskIds || [];
       renderRoadmap(r[0].tasks || [], (r[1].projections || {}));
     }).catch(function(e){ showError(e.message); });
   } else {

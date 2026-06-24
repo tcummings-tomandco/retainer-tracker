@@ -10,6 +10,7 @@ const {
 const { getProjections, saveProjection } = require('./projections');
 const { getTaskOrder, saveTaskOrder }     = require('./task-order');
 const { getOnHold, saveOnHold }           = require('./on-hold');
+const { getReport, saveReport, generateReport, saveBlurb, regenerateBlurb } = require('./scoping');
 const { getCache, setCache, deleteCache }            = require('./cache');
 const { requireAuth, requireAdmin, assertClientAccess } = require('./auth');
 const { listUsers, createUser, updateUser, deleteUser, getInviteLink } = require('./users');
@@ -163,6 +164,64 @@ app.post('/api/on-hold', requireAdmin, async (req, res) => {
     const { clientIndex, taskIds } = req.body;
     await saveOnHold(parseInt(clientIndex, 10), taskIds || []);
     res.json({ ok: true });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+// ── Client Updates (weekly scoping/discovery report) ─────────────
+// Read the current draft/sent report for a client.
+app.get('/api/scoping', async (req, res) => {
+  try {
+    const { client = 0 } = req.query;
+    if (!assertClientAccess(req, res, client)) return;
+    const report = await getReport(parseInt(client, 10));
+    res.json({ ok: true, report: report || null });
+  } catch (e) { res.json({ ok: false, error: e.message, report: null }); }
+});
+
+// Kick off (re)generation of a client's draft. Generation can take a while
+// (fetches each task + Jira + an LLM call), so we mark the report 'generating',
+// respond immediately, and build in the background. The client polls GET /api/scoping.
+app.post('/api/scoping/generate', requireAdmin, async (req, res) => {
+  try {
+    const clientIndex = parseInt(req.body.clientIndex, 10);
+    if (isNaN(clientIndex)) return res.json({ ok: false, error: 'Bad clientIndex' });
+    const existing = (await getReport(clientIndex)) || {};
+    await saveReport({
+      clientIndex,
+      status: 'generating',
+      generatedAt: new Date().toISOString(),
+      sentAt: existing.sentAt || null,
+      tasks: existing.tasks || [],
+    });
+    res.json({ ok: true, status: 'generating' });
+    generateReport(clientIndex).catch(async (e) => {
+      console.error('Scoping generate error:', e);
+      try {
+        await saveReport({
+          clientIndex, status: 'error', error: e.message,
+          generatedAt: new Date().toISOString(),
+          sentAt: existing.sentAt || null, tasks: existing.tasks || [],
+        });
+      } catch (_) { /* ignore */ }
+    });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+// Save a PM-edited blurb for a single task.
+app.post('/api/scoping/blurb', requireAdmin, async (req, res) => {
+  try {
+    const { clientIndex, taskId, blurb } = req.body;
+    const report = await saveBlurb(parseInt(clientIndex, 10), taskId, blurb || '');
+    res.json({ ok: true, report });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+// Re-roll a single task's blurb from fresh data.
+app.post('/api/scoping/regenerate', requireAdmin, async (req, res) => {
+  try {
+    const { clientIndex, taskId } = req.body;
+    const report = await regenerateBlurb(parseInt(clientIndex, 10), taskId);
+    res.json({ ok: true, report });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 

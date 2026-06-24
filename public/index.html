@@ -129,6 +129,41 @@
   .task-card.on-hold { opacity:.8; border-style:dashed; background:#f8fafc; }
   .kanban-col.k-onhold .k-tasks { background:repeating-linear-gradient(45deg,transparent,transparent 7px,rgba(100,116,139,.04) 7px,rgba(100,116,139,.04) 14px); border-radius:8px; padding:4px; }
 
+  /* ── Client Updates tab ────────────────────────────────── */
+  .cu-section   { padding:24px; }
+  .cu-toolbar   { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+  .cu-btn       { padding:7px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; font-size:12px; }
+  .cu-btn:hover { background:#e2e8f0; }
+  .cu-btn.primary { background:var(--blue); color:#fff; border-color:var(--blue); font-weight:600; }
+  .cu-btn:disabled { opacity:.5; cursor:default; }
+  .cu-meta      { font-size:11px; color:var(--muted); }
+  .cu-group     { margin-bottom:22px; }
+  .cu-group-hdr { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin:0 0 8px; padding-bottom:5px; border-bottom:1px solid var(--border); }
+  .cu-card      { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:10px; }
+  .cu-card.attn { border-left:3px solid var(--amber); }
+  .cu-card-top  { display:flex; align-items:flex-start; gap:10px; justify-content:space-between; }
+  .cu-task-name { font-size:13px; font-weight:600; color:var(--text); text-decoration:none; line-height:1.4; }
+  .cu-task-name:hover { color:#2563eb; }
+  .cu-pills     { display:flex; gap:5px; align-items:center; flex-wrap:wrap; margin-top:5px; }
+  .cu-pill      { display:inline-block; padding:1px 6px; border-radius:3px; font-size:9px; border:1px solid var(--border); color:var(--muted); background:#f1f5f9; }
+  .cu-pill.jira { background:#e0e7ff; color:#4338ca; border-color:#c7d2fe; }
+  .cu-pill.age  { background:#fef3c7; color:#b45309; border-color:#fde68a; }
+  .cu-blurb     { width:100%; box-sizing:border-box; margin-top:10px; min-height:64px; padding:9px 11px; border:1px solid var(--border); border-radius:7px; font-size:12.5px; line-height:1.5; color:var(--text); resize:vertical; font-family:inherit; }
+  .cu-blurb:focus { outline:1px solid var(--blue); border-color:var(--blue); }
+  .cu-blurb[readonly] { background:#f8fafc; }
+  .cu-note      { margin-top:8px; font-size:11px; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:6px 9px; }
+  .cu-note b    { color:#78350f; }
+  .cu-card-actions { margin-top:8px; display:flex; gap:8px; align-items:center; }
+  .cu-link-btn  { background:none; border:none; color:var(--blue); cursor:pointer; font-size:11px; padding:0; }
+  .cu-link-btn:hover { text-decoration:underline; }
+  .cu-saved     { font-size:10px; color:#10b981; opacity:0; transition:opacity .2s; }
+  .cu-saved.show { opacity:1; }
+  .cu-preview   { background:#fff; border:1px solid var(--border); border-radius:10px; padding:22px; max-width:680px; }
+  .cu-preview h2 { font-size:16px; margin:0 0 4px; }
+  .cu-preview .pv-item { margin:0 0 16px; }
+  .cu-preview .pv-name { font-weight:600; font-size:13px; margin:0 0 3px; }
+  .cu-preview .pv-blurb { font-size:13px; line-height:1.55; color:#334155; margin:0; }
+
   /* Priority badges */
   .pri         { display:inline-block; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
   .pri-urgent  { background:#fef2f2; color:#dc2626; border:1px solid #fca5a5; }
@@ -314,6 +349,7 @@
       <button id="tabBalance"   class="view-tab active"  onclick="switchView('balance')">Balance</button>
       <button id="tabPipeline"  class="view-tab"         onclick="switchView('pipeline')">Pipeline</button>
       <button id="tabRoadmap"   class="view-tab"         onclick="switchView('roadmap')">Roadmap</button>
+      <button id="tabUpdates"   class="view-tab"         onclick="switchView('updates')">Client Updates</button>
     </div>
     <button onclick="forceRefresh()" id="refreshBtn">↻ Refresh</button>
     <span id="cacheLabel" style="font-size:11px;color:#475569"></span>
@@ -344,6 +380,9 @@ var openAllocTasks  = {}; // keyed by raw task ID: true when allocation panel is
 var collapsedGroups = {}; // keyed by group key ('pre','active','review'): true when collapsed
 var taskOrderState  = {}; // keyed by group key: array of task IDs in display order
 var onHoldState     = []; // app-managed: array of task IDs parked in the On Hold column (off the roadmap)
+var scopingReport   = null; // current Client Updates report for the selected client
+var scopingPollTimer = null; // interval handle while a draft is generating
+var scopingShowPreview = false; // toggles the client-facing email preview panel
 var roadmapYear = _CUR_YEAR; // which year the gantt columns show
 var roadmapRenderState = null; // { tasks, projections, months, nowMonth, groups } — kept for live row refresh
 var ganttDrag  = null; // active bar drag state: { taskId, handle:'left'|'right', months }
@@ -397,6 +436,10 @@ var API_MAP = {
   saveTaskOrder:            function(ci, order)      { return ['POST', '/api/task-order',        { clientIndex:ci, order:order }]; },
   getOnHold:                function(ci)             { return ['GET',  '/api/on-hold',           { client:ci }]; },
   saveOnHold:               function(ci, taskIds)    { return ['POST', '/api/on-hold',           { clientIndex:ci, taskIds:taskIds }]; },
+  getScoping:               function(ci)             { return ['GET',  '/api/scoping',           { client:ci }]; },
+  generateScoping:          function(ci)             { return ['POST', '/api/scoping/generate',  { clientIndex:ci }]; },
+  saveScopingBlurb:         function(ci,tid,blurb)   { return ['POST', '/api/scoping/blurb',     { clientIndex:ci, taskId:tid, blurb:blurb }]; },
+  regenerateScoping:        function(ci,tid)         { return ['POST', '/api/scoping/regenerate',{ clientIndex:ci, taskId:tid }]; },
 };
 
 async function run(fn) {
@@ -445,8 +488,10 @@ function initApp() {
     if (currentUser.role === 'admin') {
       document.getElementById('adminLink').style.display = 'inline-flex';
     } else {
-      // Client users: hide Overview tab, hide Refresh button, read-only mode
+      // Client users: hide Overview + Client Updates tabs, hide Refresh button, read-only mode
       document.getElementById('tabOverview').style.display = 'none';
+      var tabUpd = document.getElementById('tabUpdates');
+      if (tabUpd) tabUpd.style.display = 'none';
       document.getElementById('refreshBtn').style.display  = 'none';
       isReadOnly = true;
       // Default to balance tab (not overview)
@@ -499,8 +544,11 @@ function onClientChange() {
   activeMonth  = null;
   yearData     = null;
   pipelineData = null;
+  scopingReport = null;
+  stopScopingPoll();
   if (activeView === 'pipeline') loadPipeline();
   else if (activeView === 'roadmap') loadRoadmap();
+  else if (activeView === 'updates') loadClientUpdates();
   else loadYear();
 }
 
@@ -510,17 +558,18 @@ function switchView(v) {
   document.getElementById('tabBalance').className   = 'view-tab' + (v === 'balance'   ? ' active' : '');
   document.getElementById('tabPipeline').className  = 'view-tab' + (v === 'pipeline'  ? ' active' : '');
   document.getElementById('tabRoadmap').className   = 'view-tab' + (v === 'roadmap'   ? ' active' : '');
+  var tabUpd = document.getElementById('tabUpdates');
+  if (tabUpd) tabUpd.className = 'view-tab' + (v === 'updates' ? ' active' : '');
   var toggle = document.getElementById('budgetToggle');
   if (toggle) toggle.style.display = (v === 'balance' && clients[selIdx] && clients[selIdx].hasRetainerBudget) ? 'flex' : 'none';
-  // Hide client selector and year picker on overview tab.
+  // Client selector: hidden only on overview (updates still needs it to pick a client).
+  // Year picker: irrelevant on overview and updates.
   // budgetToggle is intentionally excluded — its visibility is fully controlled
   // by the dedicated if/else above (balance+hasRetainerBudget → flex, else → none).
-  // Including it here would reset display:'' which lets the CSS flex default
-  // override the none set above, causing the toggle to show on wrong tabs/clients.
-  ['clientSel', 'yearSel'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.style.display = (v === 'overview') ? 'none' : '';
-  });
+  var clientSelEl = document.getElementById('clientSel');
+  if (clientSelEl) clientSelEl.style.display = (v === 'overview') ? 'none' : '';
+  var yearSelEl = document.getElementById('yearSel');
+  if (yearSelEl) yearSelEl.style.display = (v === 'overview' || v === 'updates') ? 'none' : '';
   document.getElementById('subTitle').textContent = (v === 'overview') ? 'All Clients' : (clients[selIdx] ? clients[selIdx].name : '');
   if (v === 'overview') {
     loadOverview();
@@ -530,6 +579,8 @@ function switchView(v) {
   } else if (v === 'pipeline') {
     if (pipelineData) renderPipeline(pipelineData);
     else loadPipeline();
+  } else if (v === 'updates') {
+    loadClientUpdates();
   } else {
     loadRoadmap();
   }
@@ -2262,6 +2313,166 @@ function forceRefresh() {
       if (activeMonth) loadDrilldown(activeMonth);
     }).catch(function(e){ showError(e.message); });
   }
+}
+
+// ── Client Updates: load & render ──────────────────────────────
+var CU_ORDER = ['in scoping', 'client quote feedback', 'quote given', 'in discovery'];
+
+function stopScopingPoll() {
+  if (scopingPollTimer) { clearInterval(scopingPollTimer); scopingPollTimer = null; }
+}
+
+function startScopingPoll() {
+  stopScopingPoll();
+  scopingPollTimer = setInterval(function() {
+    run('getScoping', selIdx).then(function(r) {
+      var rep = r.report || null;
+      if (rep && rep.status !== 'generating') {
+        scopingReport = rep;
+        stopScopingPoll();
+        if (activeView === 'updates') renderClientUpdates();
+      }
+    }).catch(function() { /* transient — keep polling */ });
+  }, 4000);
+}
+
+function loadClientUpdates() {
+  stopScopingPoll();
+  document.getElementById('kpiStrip').innerHTML = '';
+  document.getElementById('tplBar').style.display = 'none';
+  var bt = document.getElementById('budgetToggle'); if (bt) bt.style.display = 'none';
+  document.getElementById('main').innerHTML = '<div class="state-msg"><div class="spinner"></div><div>Loading client updates…</div></div>';
+  run('getScoping', selIdx).then(function(r) {
+    scopingReport = r.report || null;
+    renderClientUpdates();
+    if (scopingReport && scopingReport.status === 'generating') startScopingPoll();
+  }).catch(function(e) { showError(e.message); });
+}
+
+function generateScopingDraft() {
+  if (isReadOnly) return;
+  run('generateScoping', selIdx).then(function() {
+    if (!scopingReport) scopingReport = { clientIndex: selIdx, tasks: [] };
+    scopingReport.status = 'generating';
+    scopingShowPreview = false;
+    renderClientUpdates();
+    startScopingPoll();
+  }).catch(function(e) { showError(e.message); });
+}
+
+function toggleScopingPreview() { scopingShowPreview = !scopingShowPreview; renderClientUpdates(); }
+
+function saveScopingBlurbEdit(taskId, val) {
+  if (isReadOnly) return;
+  if (scopingReport && scopingReport.tasks) {
+    var t = scopingReport.tasks.find(function(x) { return x.id === taskId; });
+    if (t) { t.blurb = val; t.edited = true; }
+  }
+  run('saveScopingBlurb', selIdx, taskId, val).then(function() {
+    var el = document.getElementById('cu-saved-' + taskId.replace(/[^a-zA-Z0-9]/g, '_'));
+    if (el) { el.classList.add('show'); setTimeout(function() { el.classList.remove('show'); }, 1500); }
+  }).catch(function(e) { showError('Failed to save: ' + e.message); });
+}
+
+function regenerateScopingTask(taskId) {
+  if (isReadOnly) return;
+  var safe = taskId.replace(/[^a-zA-Z0-9]/g, '_');
+  var ta = document.getElementById('cu-blurb-' + safe);
+  if (ta) { ta.disabled = true; ta.value = 'Regenerating…'; }
+  run('regenerateScoping', selIdx, taskId).then(function(r) {
+    scopingReport = r.report || scopingReport;
+    renderClientUpdates();
+  }).catch(function(e) { showError('Regenerate failed: ' + e.message); if (ta) ta.disabled = false; });
+}
+
+function scopingCardHtml(t) {
+  var safe = t.id.replace(/[^a-zA-Z0-9]/g, '_');
+  var pills = '';
+  if (t.statusAgeDays != null && t.statusAgeDays >= 14) pills += '<span class="cu-pill age">' + t.statusAgeDays + 'd since update</span>';
+  if (t.jiraStatus) pills += '<span class="cu-pill jira">' + esc(t.jiraStatus) + '</span>';
+  if (t.sprint)     pills += '<span class="cu-pill">' + esc(t.sprint) + '</span>';
+  var name = t.url
+    ? '<a class="cu-task-name" href="' + t.url + '" target="_blank">' + esc(t.name) + '</a>'
+    : '<span class="cu-task-name">' + esc(t.name) + '</span>';
+  var blurb = isReadOnly
+    ? '<div class="cu-blurb" style="white-space:pre-wrap">' + esc(t.blurb || '') + '</div>'
+    : '<textarea id="cu-blurb-' + safe + '" class="cu-blurb" onchange="saveScopingBlurbEdit(\'' + t.id + '\', this.value)" placeholder="Client-facing update…">' + esc(t.blurb || '') + '</textarea>';
+  var note = (!isReadOnly && t.internalNote) ? '<div class="cu-note"><b>Internal:</b> ' + esc(t.internalNote) + '</div>' : '';
+  var actions = isReadOnly ? '' : '<div class="cu-card-actions">'
+    + '<button class="cu-link-btn" onclick="regenerateScopingTask(\'' + t.id + '\')">↻ Re-roll</button>'
+    + '<span class="cu-saved" id="cu-saved-' + safe + '">Saved ✓</span>'
+    + (t.edited ? '<span class="cu-meta">· edited</span>' : '')
+    + '</div>';
+  return '<div class="cu-card' + (t.needsAttention ? ' attn' : '') + '">'
+    + '<div class="cu-card-top">' + name + '</div>'
+    + (pills ? '<div class="cu-pills">' + pills + '</div>' : '')
+    + blurb + note + actions + '</div>';
+}
+
+function scopingEditorHtml(rep) {
+  var byStatus = {};
+  rep.tasks.forEach(function(t) { (byStatus[t.status] = byStatus[t.status] || []).push(t); });
+  var order = CU_ORDER.slice();
+  Object.keys(byStatus).forEach(function(s) { if (order.indexOf(s) < 0) order.push(s); });
+  var html = '';
+  order.forEach(function(s) {
+    var list = byStatus[s]; if (!list || !list.length) return;
+    var meta = STATUS_META[s] || { label: s };
+    html += '<div class="cu-group"><div class="cu-group-hdr">' + esc(meta.label || s) + ' · ' + list.length + '</div>';
+    list.forEach(function(t) { html += scopingCardHtml(t); });
+    html += '</div>';
+  });
+  return html;
+}
+
+function scopingPreviewHtml(rep) {
+  var items = rep.tasks.filter(function(t) { return t.blurb && t.blurb.trim(); });
+  var pv = items.map(function(t) {
+    return '<div class="pv-item"><div class="pv-name">' + esc(t.name) + '</div><p class="pv-blurb">' + esc(t.blurb) + '</p></div>';
+  }).join('');
+  if (!pv) pv = '<div class="cu-meta">No updates with text yet — generate or write some first.</div>';
+  return '<div class="cu-preview">'
+    + '<h2>Weekly project update</h2>'
+    + '<p class="cu-meta" style="margin:0 0 18px">Here’s where your current pieces of work stand:</p>'
+    + pv
+    + '<p class="cu-meta" style="margin-top:18px">As always, just reply if you have any questions.</p>'
+    + '</div>';
+}
+
+function renderClientUpdates() {
+  var main = document.getElementById('main');
+  if (!main) return;
+  var rep = scopingReport;
+  var generating = rep && rep.status === 'generating';
+
+  var genMeta = '';
+  if (rep && rep.status === 'sent' && rep.sentAt) genMeta = 'Sent ' + new Date(rep.sentAt).toLocaleString();
+  else if (rep && rep.generatedAt && !generating) genMeta = 'Draft generated ' + new Date(rep.generatedAt).toLocaleString();
+
+  var hasTasks = rep && rep.tasks && rep.tasks.length;
+  var toolbar = '<div class="cu-toolbar">'
+    + '<button class="cu-btn primary" onclick="generateScopingDraft()"' + (generating ? ' disabled' : '') + '>'
+    + (generating ? 'Generating…' : (hasTasks ? 'Regenerate draft' : 'Generate draft')) + '</button>'
+    + (hasTasks ? '<button class="cu-btn" onclick="toggleScopingPreview()">' + (scopingShowPreview ? 'Edit updates' : 'Preview email') + '</button>' : '')
+    + '<span class="cu-meta">' + esc(genMeta) + '</span>'
+    + '</div>';
+
+  var body;
+  if (generating) {
+    body = '<div class="state-msg" style="height:auto;padding:40px 0"><div class="spinner"></div><div>Generating updates — this can take a minute…</div></div>';
+  } else if (rep && rep.status === 'error') {
+    body = '<div class="state-msg" style="height:auto;padding:30px 0;color:var(--red)">⚠ ' + esc(rep.error || 'Generation failed') + '</div>';
+  } else if (!hasTasks) {
+    body = '<div class="cu-meta" style="padding:20px 0">No tasks are currently in scoping, quote feedback, quote given, or discovery for this client. Click “Generate draft” to fetch the latest.</div>';
+  } else if (scopingShowPreview) {
+    body = scopingPreviewHtml(rep);
+  } else {
+    body = scopingEditorHtml(rep);
+  }
+
+  main.innerHTML = '<div class="cu-section">'
+    + '<div class="section-title">Client Updates · ' + esc(clients[selIdx] ? clients[selIdx].name : '') + '</div>'
+    + toolbar + body + '</div>';
 }
 
 function showError(msg) {

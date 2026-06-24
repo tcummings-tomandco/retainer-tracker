@@ -1,5 +1,5 @@
 'use strict';
-const { CLICKUP_BASE, CF, PIPELINE_STATUSES } = require('./config');
+const { CLICKUP_BASE, CF, PIPELINE_STATUSES, SCOPING_STATUSES } = require('./config');
 const { parseTask, parsePipelineTask } = require('./helpers');
 const billingField = require('./billing-field');
 
@@ -251,4 +251,35 @@ async function fetchPipelineTasks(teamId, listId) {
   return (data.tasks || []).map(parsePipelineTask);
 }
 
-module.exports = { cuFetch, fetchMonthlyTemplates, buildPaygDiscoveryCache, fetchPaygSubtasks, fetchBillingSubtasks, fetchTasksForMonth, fetchPipelineTasks };
+// Fetch tasks in the early "scoping" statuses with FULL detail for the weekly
+// Client Updates report — returns raw ClickUp task objects (markdown description,
+// all custom fields, assignees, date_updated). scoping.js parses what it needs.
+// Each task is fetched individually so the markdown description and complete
+// custom-field set are present (the team-list endpoint can truncate/omit these).
+async function fetchScopingTasksDetailed(teamId, listId) {
+  if (!listId) return [];
+  const statusQs = SCOPING_STATUSES.map(s => 'statuses[]=' + encodeURIComponent(s)).join('&');
+  const data = await cuFetch(CLICKUP_BASE + '/team/' + teamId + '/task?list_ids[]=' + listId
+    + '&' + statusQs + '&subtasks=false&page=0');
+  const tasks = data.tasks || [];
+
+  const detailed = [];
+  for (const t of tasks) {
+    let full = t;
+    try {
+      const f = await cuFetch(CLICKUP_BASE + '/task/' + t.id + '?include_markdown_description=true');
+      if (f && f.id) full = f;
+    } catch (e) { /* fall back to the lean list payload */ }
+    detailed.push(full);
+    await sleep(100);
+  }
+  return detailed;
+}
+
+// Raw task comments (newest first). Each has comment_text, user{email}, resolved, date.
+async function fetchTaskComments(taskId) {
+  const data = await cuFetch(CLICKUP_BASE + '/task/' + taskId + '/comment');
+  return data.comments || [];
+}
+
+module.exports = { cuFetch, fetchMonthlyTemplates, buildPaygDiscoveryCache, fetchPaygSubtasks, fetchBillingSubtasks, fetchTasksForMonth, fetchPipelineTasks, fetchScopingTasksDetailed, fetchTaskComments };

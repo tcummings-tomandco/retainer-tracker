@@ -9,7 +9,19 @@ const CF = {
   QUOTE_HOURS:     '3c706ecb-1c3b-422f-be30-734bffbb8364',
   BALANCE:         'f0db275c-2bd8-4024-9ba5-3545e58a80f0',
   BILLING_TYPE:    'd90217b7-a252-49c7-bff6-451513011f9d', // 0=Retainer, 1=Project, 2=Not Billable, 3=Epic
+  // Fields used by the weekly Client Updates report (scoping/discovery progress).
+  JIRA_ID:         '58dd9485-77e4-432f-9ba4-296f8460608e', // e.g. "LER-5976"
+  JIRA_URL:        '0cbf12ca-c0ba-452e-ab3a-3e74fff2298e', // e.g. https://tomandco.atlassian.net/browse/LER-5976
+  JIRA_STATUS:     '34153f1b-a079-41ac-a3fc-22697458a532', // synced Jira status, e.g. "discovery approved"
+  JIRA_SPRINT:     '727b4712-bb7b-4ef1-8a27-afbc178b5849', // dropdown, e.g. "26-08 (15Apr - 29Apr)"
+  DISCOVERY_HOURS: 'dac753fc-34b3-47d9-ad78-2b95f5a15064',
+  POD:             'e7ed6588-41fa-417c-8768-ed8a5edda458', // dev pod (Onyx/Arkenstone/…)
+  HANDOVER_NOTES:  'b1b31cfe-b1a5-45de-9df7-f47c51c57a50',
 };
+
+// Statuses surfaced in the weekly Client Updates report — the early, pre-dev
+// stages clients tend to chase PMs about.
+const SCOPING_STATUSES = ['in scoping', 'client quote feedback', 'quote given', 'in discovery'];
 
 const PIPELINE_STATUSES = [
   'ideas',
@@ -88,4 +100,4 @@ const CLIENTS = [
   { name:'Acoustical Solutions',spaceId:'90123743010', billingListId:'901209603538', retainerTasksListId:'901209603544', hasRetainerBudget:false },
 ];
 
-module.exports = { CLICKUP_BASE, CACHE_SECONDS, CF, PIPELINE_STATUSES, BILLING_TO_IDX, IDX_TO_BILLING, ALL_MONTHS, currentYearStart, CLIENTS };
+module.exports = { CLICKUP_BASE, CACHE_SECONDS, CF, PIPELINE_STATUSES, SCOPING_STATUSES, BILLING_TO_IDX, IDX_TO_BILLING, ALL_MONTHS, currentYearStart, CLIENTS };

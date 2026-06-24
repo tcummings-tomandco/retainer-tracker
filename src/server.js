@@ -10,7 +10,7 @@ const {
 const { getProjections, saveProjection } = require('./projections');
 const { getTaskOrder, saveTaskOrder }     = require('./task-order');
 const { getOnHold, saveOnHold }           = require('./on-hold');
-const { getReport, saveReport, generateReport, saveBlurb, regenerateBlurb } = require('./scoping');
+const { getReport, saveReport, generateReport, saveBlurb, regenerateBlurb, gatherClientSignals, importReport } = require('./scoping');
 const { getCache, setCache, deleteCache }            = require('./cache');
 const { requireAuth, requireAdmin, assertClientAccess } = require('./auth');
 const { listUsers, createUser, updateUser, deleteUser, getInviteLink } = require('./users');
@@ -41,6 +41,40 @@ app.post('/api/cron/refresh', (req, res) => {
   }
   res.json({ ok: true, message: 'Cache refresh started' });
   refreshAllCaches().catch(e => console.error('Refresh error:', e));
+});
+
+// ── Client Updates generation hooks (secret-protected, no Firebase Auth) ──────
+// The blurbs are written by an external generator (Claude Code) running on a
+// subscription rather than the paid API — so the app never calls an LLM.
+// `signals` returns the gathered ClickUp/Jira data for a client; `import` stores
+// the finished blurbs as a draft. Both are guarded by the shared CRON_SECRET so a
+// scheduled/headless run needs only the URL + secret + a model (no MCP).
+function checkCronSecret(req, res) {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers['x-cron-secret'] !== secret) {
+    res.status(401).json({ ok: false, error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+app.get('/api/scoping/signals', async (req, res) => {
+  if (!checkCronSecret(req, res)) return;
+  try {
+    const client = parseInt(req.query.client, 10);
+    if (isNaN(client)) return res.status(400).json({ ok: false, error: 'Bad client index' });
+    const signals = await gatherClientSignals(client);
+    res.json({ ok: true, signals });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+app.post('/api/scoping/import', async (req, res) => {
+  if (!checkCronSecret(req, res)) return;
+  try {
+    const { clientIndex, tasks } = req.body;
+    const report = await importReport(parseInt(clientIndex, 10), tasks || []);
+    res.json({ ok: true, report });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 
 // ── Auth middleware — all /api/* routes below require a valid token ──

@@ -2322,20 +2322,6 @@ function stopScopingPoll() {
   if (scopingPollTimer) { clearInterval(scopingPollTimer); scopingPollTimer = null; }
 }
 
-function startScopingPoll() {
-  stopScopingPoll();
-  scopingPollTimer = setInterval(function() {
-    run('getScoping', selIdx).then(function(r) {
-      var rep = r.report || null;
-      if (rep && rep.status !== 'generating') {
-        scopingReport = rep;
-        stopScopingPoll();
-        if (activeView === 'updates') renderClientUpdates();
-      }
-    }).catch(function() { /* transient — keep polling */ });
-  }, 4000);
-}
-
 function loadClientUpdates() {
   stopScopingPoll();
   document.getElementById('kpiStrip').innerHTML = '';
@@ -2345,18 +2331,6 @@ function loadClientUpdates() {
   run('getScoping', selIdx).then(function(r) {
     scopingReport = r.report || null;
     renderClientUpdates();
-    if (scopingReport && scopingReport.status === 'generating') startScopingPoll();
-  }).catch(function(e) { showError(e.message); });
-}
-
-function generateScopingDraft() {
-  if (isReadOnly) return;
-  run('generateScoping', selIdx).then(function() {
-    if (!scopingReport) scopingReport = { clientIndex: selIdx, tasks: [] };
-    scopingReport.status = 'generating';
-    scopingShowPreview = false;
-    renderClientUpdates();
-    startScopingPoll();
   }).catch(function(e) { showError(e.message); });
 }
 
@@ -2374,17 +2348,6 @@ function saveScopingBlurbEdit(taskId, val) {
   }).catch(function(e) { showError('Failed to save: ' + e.message); });
 }
 
-function regenerateScopingTask(taskId) {
-  if (isReadOnly) return;
-  var safe = taskId.replace(/[^a-zA-Z0-9]/g, '_');
-  var ta = document.getElementById('cu-blurb-' + safe);
-  if (ta) { ta.disabled = true; ta.value = 'Regenerating…'; }
-  run('regenerateScoping', selIdx, taskId).then(function(r) {
-    scopingReport = r.report || scopingReport;
-    renderClientUpdates();
-  }).catch(function(e) { showError('Regenerate failed: ' + e.message); if (ta) ta.disabled = false; });
-}
-
 function scopingCardHtml(t) {
   var safe = t.id.replace(/[^a-zA-Z0-9]/g, '_');
   var pills = '';
@@ -2399,7 +2362,6 @@ function scopingCardHtml(t) {
     : '<textarea id="cu-blurb-' + safe + '" class="cu-blurb" onchange="saveScopingBlurbEdit(\'' + t.id + '\', this.value)" placeholder="Client-facing update…">' + esc(t.blurb || '') + '</textarea>';
   var note = (!isReadOnly && t.internalNote) ? '<div class="cu-note"><b>Internal:</b> ' + esc(t.internalNote) + '</div>' : '';
   var actions = isReadOnly ? '' : '<div class="cu-card-actions">'
-    + '<button class="cu-link-btn" onclick="regenerateScopingTask(\'' + t.id + '\')">↻ Re-roll</button>'
     + '<span class="cu-saved" id="cu-saved-' + safe + '">Saved ✓</span>'
     + (t.edited ? '<span class="cu-meta">· edited</span>' : '')
     + '</div>';
@@ -2443,27 +2405,23 @@ function renderClientUpdates() {
   var main = document.getElementById('main');
   if (!main) return;
   var rep = scopingReport;
-  var generating = rep && rep.status === 'generating';
 
   var genMeta = '';
   if (rep && rep.status === 'sent' && rep.sentAt) genMeta = 'Sent ' + new Date(rep.sentAt).toLocaleString();
-  else if (rep && rep.generatedAt && !generating) genMeta = 'Draft generated ' + new Date(rep.generatedAt).toLocaleString();
+  else if (rep && rep.generatedAt) genMeta = 'Draft prepared ' + new Date(rep.generatedAt).toLocaleString();
 
   var hasTasks = rep && rep.tasks && rep.tasks.length;
   var toolbar = '<div class="cu-toolbar">'
-    + '<button class="cu-btn primary" onclick="generateScopingDraft()"' + (generating ? ' disabled' : '') + '>'
-    + (generating ? 'Generating…' : (hasTasks ? 'Regenerate draft' : 'Generate draft')) + '</button>'
+    + '<button class="cu-btn" onclick="loadClientUpdates()">↻ Refresh</button>'
     + (hasTasks ? '<button class="cu-btn" onclick="toggleScopingPreview()">' + (scopingShowPreview ? 'Edit updates' : 'Preview email') + '</button>' : '')
     + '<span class="cu-meta">' + esc(genMeta) + '</span>'
     + '</div>';
 
   var body;
-  if (generating) {
-    body = '<div class="state-msg" style="height:auto;padding:40px 0"><div class="spinner"></div><div>Generating updates — this can take a minute…</div></div>';
-  } else if (rep && rep.status === 'error') {
+  if (rep && rep.status === 'error') {
     body = '<div class="state-msg" style="height:auto;padding:30px 0;color:var(--red)">⚠ ' + esc(rep.error || 'Generation failed') + '</div>';
   } else if (!hasTasks) {
-    body = '<div class="cu-meta" style="padding:20px 0">No tasks are currently in scoping, quote feedback, quote given, or discovery for this client. Click “Generate draft” to fetch the latest.</div>';
+    body = '<div class="cu-meta" style="padding:20px 0">No draft yet for this client. Drafts are prepared by Claude Code — automatically each Monday, or on request — then appear here for you to review and send. Hit Refresh after one has been prepared.</div>';
   } else if (scopingShowPreview) {
     body = scopingPreviewHtml(rep);
   } else {

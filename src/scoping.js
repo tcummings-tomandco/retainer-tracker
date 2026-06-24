@@ -60,8 +60,12 @@ function baseFields(raw) {
   };
 }
 
-// Build a full report entry (with blurb) for one raw ClickUp task.
-async function buildTaskEntry(raw) {
+// Gather everything needed to write a blurb for one raw ClickUp task, WITHOUT
+// calling the LLM. Returns the display fields plus the generation context
+// (description, comments, live Jira). Used by the signals endpoint (so an
+// external generator — Claude Code — can write the blurbs) and by the optional
+// server-side generator below.
+async function gatherTaskSignals(raw) {
   const base = baseFields(raw);
 
   // ClickUp returns comments newest-first; reverse to oldest-first for narrative.
@@ -80,22 +84,8 @@ async function buildTaskEntry(raw) {
     jiraComments = await fetchJiraComments(base.jiraId, 6);
   }
 
-  const description = raw.markdown_description || raw.text_content || raw.description || '';
-  const gen = await generateBlurb({
-    name:           base.name,
-    status:         base.status,
-    statusAgeDays:  base.statusAgeDays,
-    description,
-    clickupComments,
-    jiraStatus:     base.jiraStatus,
-    sprint:         base.sprint,
-    quoteHours:     base.quoteHours,
-    discoveryHours: base.discoveryHours,
-    jiraLive,
-    jiraComments,
-  });
-
   return {
+    // Display fields (echoed back by the importer into the stored report).
     id:             base.id,
     name:           base.name,
     url:            base.url,
@@ -104,11 +94,76 @@ async function buildTaskEntry(raw) {
     jiraStatus:     base.jiraStatus,
     sprint:         base.sprint,
     quoteHours:     base.quoteHours,
+    discoveryHours: base.discoveryHours,
+    // Generation context.
+    description:    raw.markdown_description || raw.text_content || raw.description || '',
+    clickupComments,
+    jiraLive,
+    jiraComments,
+  };
+}
+
+// Optional server-side generation (only if ANTHROPIC_API_KEY is set). Not used
+// by the default Claude-Code-driven flow, but kept as a fallback.
+async function buildTaskEntry(raw) {
+  const s = await gatherTaskSignals(raw);
+  const gen = await generateBlurb(s);
+  return {
+    id:             s.id,
+    name:           s.name,
+    url:            s.url,
+    status:         s.status,
+    statusAgeDays:  s.statusAgeDays,
+    jiraStatus:     s.jiraStatus,
+    sprint:         s.sprint,
+    quoteHours:     s.quoteHours,
     blurb:          gen.blurb,
     internalNote:   gen.internalNote,
     needsAttention: gen.needsAttention,
     edited:         false,
   };
+}
+
+// Gather signals for every scoping task of a client (no LLM). The signals
+// endpoint returns this so an external generator can write client-safe blurbs.
+async function gatherClientSignals(clientIndex) {
+  const client = CLIENTS[clientIndex];
+  if (!client) throw new Error('Unknown client index ' + clientIndex);
+  const raws = await fetchScopingTasksDetailed(teamId(), client.retainerTasksListId);
+  const tasks = [];
+  for (const raw of raws) {
+    try {
+      tasks.push(await gatherTaskSignals(raw));
+    } catch (e) {
+      console.error('Scoping signal gather failed', raw && raw.id, e.message);
+    }
+  }
+  return { clientIndex, gatheredAt: new Date().toISOString(), tasks };
+}
+
+// Save externally-generated blurbs as a fresh draft report (replaces prior tasks).
+async function importReport(clientIndex, tasks) {
+  const clean = (Array.isArray(tasks) ? tasks : []).map(t => ({
+    id:             String(t.id),
+    name:           t.name || '',
+    url:            t.url || '',
+    status:         t.status || '',
+    statusAgeDays:  t.statusAgeDays != null ? Number(t.statusAgeDays) : null,
+    jiraStatus:     t.jiraStatus || null,
+    sprint:         t.sprint || null,
+    quoteHours:     t.quoteHours != null ? Number(t.quoteHours) : null,
+    blurb:          typeof t.blurb === 'string' ? t.blurb : '',
+    internalNote:   typeof t.internalNote === 'string' ? t.internalNote : '',
+    needsAttention: !!t.needsAttention,
+    edited:         false,
+  }));
+  return saveReport({
+    clientIndex,
+    generatedAt: new Date().toISOString(),
+    status: 'draft',
+    sentAt: null,
+    tasks: clean,
+  });
 }
 
 // ── Build / persist ───────────────────────────────────────────────────────────
@@ -185,4 +240,4 @@ async function markSent(clientIndex) {
   return saveReport(report);
 }
 
-module.exports = { buildClientReport, generateReport, getReport, saveReport, saveBlurb, regenerateBlurb, markSent };
+module.exports = { buildClientReport, generateReport, gatherClientSignals, importReport, getReport, saveReport, saveBlurb, regenerateBlurb, markSent };

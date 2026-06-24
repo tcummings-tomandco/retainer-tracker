@@ -276,10 +276,26 @@ async function fetchScopingTasksDetailed(teamId, listId) {
   return detailed;
 }
 
-// Raw task comments (newest first). Each has comment_text, user{email}, resolved, date.
+// Raw task comments INCLUDING nested thread replies, sorted newest-first.
+// ClickUp's task/comment endpoint only returns top-level comments; the latest
+// state of a task is frequently decided in a reply thread (e.g. a call being
+// booked), so for any comment with reply_count > 0 we also pull its replies and
+// merge them in by date. Each entry has comment_text, user{email}, date.
 async function fetchTaskComments(taskId) {
   const data = await cuFetch(CLICKUP_BASE + '/task/' + taskId + '/comment');
-  return data.comments || [];
+  const top  = data.comments || [];
+  const all  = top.slice();
+  for (const c of top) {
+    if (c.reply_count && c.reply_count > 0) {
+      try {
+        const r = await cuFetch(CLICKUP_BASE + '/comment/' + c.id + '/reply');
+        (r.comments || []).forEach(rep => all.push(rep));
+        await sleep(80);
+      } catch (e) { /* non-fatal — skip this thread's replies */ }
+    }
+  }
+  all.sort((a, b) => Number(b.date || 0) - Number(a.date || 0)); // newest-first
+  return all;
 }
 
 module.exports = { cuFetch, fetchMonthlyTemplates, buildPaygDiscoveryCache, fetchPaygSubtasks, fetchBillingSubtasks, fetchTasksForMonth, fetchPipelineTasks, fetchScopingTasksDetailed, fetchTaskComments };

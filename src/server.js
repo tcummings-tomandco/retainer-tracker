@@ -49,9 +49,18 @@ app.post('/api/cron/refresh', (req, res) => {
 // `signals` returns the gathered ClickUp/Jira data for a client; `import` stores
 // the finished blurbs as a draft. Both are guarded by the shared CRON_SECRET so a
 // scheduled/headless run needs only the URL + secret + a model (no MCP).
-function checkCronSecret(req, res) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers['x-cron-secret'] !== secret) {
+// Dedicated secret for the scoping signals/import endpoints. Fails CLOSED — if no
+// secret is configured the endpoints are denied (these expose internal notes and
+// accept writes, so they must never be open). Uses its own REPORTS_SECRET + header
+// so it's independent of the cache-refresh cron's CRON_SECRET. Falls back to
+// CRON_SECRET only if REPORTS_SECRET isn't set.
+function checkReportsSecret(req, res) {
+  const secret = process.env.REPORTS_SECRET || process.env.CRON_SECRET;
+  if (!secret) {
+    res.status(503).json({ ok: false, error: 'REPORTS_SECRET not configured' });
+    return false;
+  }
+  if (req.headers['x-reports-secret'] !== secret) {
     res.status(401).json({ ok: false, error: 'Unauthorized' });
     return false;
   }
@@ -59,7 +68,7 @@ function checkCronSecret(req, res) {
 }
 
 app.get('/api/scoping/signals', async (req, res) => {
-  if (!checkCronSecret(req, res)) return;
+  if (!checkReportsSecret(req, res)) return;
   try {
     const client = parseInt(req.query.client, 10);
     if (isNaN(client)) return res.status(400).json({ ok: false, error: 'Bad client index' });
@@ -69,7 +78,7 @@ app.get('/api/scoping/signals', async (req, res) => {
 });
 
 app.post('/api/scoping/import', async (req, res) => {
-  if (!checkCronSecret(req, res)) return;
+  if (!checkReportsSecret(req, res)) return;
   try {
     const { clientIndex, tasks } = req.body;
     const report = await importReport(parseInt(clientIndex, 10), tasks || []);

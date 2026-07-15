@@ -221,7 +221,10 @@
   .grp-move { background:none; border:none; cursor:pointer; font-size:9px; line-height:1; color:var(--muted); padding:2px 5px; border-radius:3px; opacity:.55; }
   .gantt-group-hdr:hover .grp-move { opacity:1; }
   .grp-move:hover { background:#e2e8f0; color:var(--text); }
-  .row-hide-btn { background:none; border:none; cursor:pointer; font-size:9px; color:var(--muted); padding:1px 5px; border-radius:3px; opacity:0; }
+  /* Pinned to the name cell's top-right corner (cell is position:sticky, so it
+     anchors absolute children) — out of the flow, so it never wraps the meta
+     row onto an extra line and never changes row height. */
+  .row-hide-btn { position:absolute; top:8px; right:8px; background:var(--surface); border:none; cursor:pointer; font-size:9px; color:var(--muted); padding:1px 5px; border-radius:3px; opacity:0; }
   tr:hover .row-hide-btn { opacity:.7; }
   .row-hide-btn:hover { background:#e2e8f0; color:var(--text); opacity:1; }
   .row-hide-btn.rhb-on { opacity:.9; color:#6d28d9; }
@@ -1681,13 +1684,8 @@ function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
     var isOpen  = !!openAllocTasks[t.id];
     var togLbl  = isOpen ? '▾ Hide' : allocToggleLabel(t.id);
     var togCls  = isOpen ? 'alloc-toggle' : allocToggleCls(t.id);
-    var rowIsHidden = isRowHidden(t.id);
-    var hideBtn = '<button class="row-hide-btn'+(rowIsHidden?' rhb-on':'')+'" onclick="toggleRowHidden(event,\''+t.id+'\')" title="'
-      +(rowIsHidden ? 'Show this row on the roadmap again' : 'Hide this row from the roadmap')+'">'
-      +(rowIsHidden ? '👁 show' : 'hide')+'</button>';
     metaRow   = '<div class="gantt-name-meta">'+priHtml+statusTag+confirmBadge
       +'<button id="alloc-toggle-'+tid+'" class="'+togCls+'" onclick="toggleAllocWrap(\''+t.id+'\')">'+togLbl+'</button>'
-      +hideBtn
       +'</div>';
     allocPanel = '<div id="alloc-wrap-'+tid+'" class="alloc-wrap" style="'+(isOpen?'':'display:none')+'">'+renderAllocRows(t.id, isPreWork)+'</div>';
   }
@@ -1700,7 +1698,17 @@ function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
       +' title="Drag to reorder">⠿</div>'
     : '';
 
+  // Hide/show control — pinned to the cell's top-right corner (admin only)
+  var hideBtn = '';
+  if (!isReadOnly) {
+    var rowIsHidden = isRowHidden(t.id);
+    hideBtn = '<button class="row-hide-btn'+(rowIsHidden?' rhb-on':'')+'" onclick="toggleRowHidden(event,\''+t.id+'\')" title="'
+      +(rowIsHidden ? 'Show this row on the roadmap again' : 'Hide this row from the roadmap')+'">'
+      +(rowIsHidden ? '👁 show' : 'hide')+'</button>';
+  }
+
   var nameTd = '<td class="gantt-name-cell">'
+    +hideBtn
     +'<div class="gantt-name-inner">'
     +rowHandle
     +'<span class="gantt-dot" style="background:'+meta.color+'"></span>'

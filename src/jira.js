@@ -51,9 +51,25 @@ function adfToText(node) {
   return out;
 }
 
+// Jira's "Start date" (shown under Details) is a custom field whose id varies per
+// site (commonly customfield_10015). Resolve it once from the field registry and
+// cache it for the process lifetime; only cache on a successful lookup so a
+// transient failure doesn't stick.
+let _startDateFieldId; // undefined = not resolved yet; null = site has no such field
+async function resolveStartDateFieldId() {
+  if (_startDateFieldId !== undefined) return _startDateFieldId;
+  const fields = await jiraFetch('/field');
+  if (!Array.isArray(fields)) return null; // transient/unconfigured — retry next call
+  const f = fields.find(x => (x.name || '').toLowerCase() === 'start date');
+  _startDateFieldId = f ? f.id : null;
+  return _startDateFieldId;
+}
+
 async function fetchJiraIssue(issueKey) {
   if (!issueKey) return null;
-  const data = await jiraFetch(`/issue/${encodeURIComponent(issueKey)}?fields=status,assignee,updated,summary`);
+  const startId = await resolveStartDateFieldId();
+  const fieldList = ['status', 'assignee', 'updated', 'summary', 'duedate'].concat(startId ? [startId] : []);
+  const data = await jiraFetch(`/issue/${encodeURIComponent(issueKey)}?fields=${fieldList.join(',')}`);
   if (!data || !data.fields) return null;
   const f = data.fields;
   return {
@@ -63,6 +79,8 @@ async function fetchJiraIssue(issueKey) {
     assignee:       f.assignee ? f.assignee.displayName : null,
     updated:        f.updated || null,
     summary:        f.summary || null,
+    startDate:      startId ? (f[startId] || null) : null, // 'YYYY-MM-DD'
+    dueDate:        f.duedate || null,                      // 'YYYY-MM-DD'
   };
 }
 

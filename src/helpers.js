@@ -90,6 +90,8 @@ function parsePipelineTask(t) {
   (t.custom_fields || []).forEach(f => { cfMap[f.id] = f; });
   const quoteCF    = cfMap[CF.QUOTE_HOURS];
   const quoteHours = (quoteCF && quoteCF.value != null) ? Number(quoteCF.value) : null;
+  const jiraCF     = cfMap[CF.JIRA_ID];
+  const jiraId     = (jiraCF && jiraCF.value != null && String(jiraCF.value).trim()) ? String(jiraCF.value).trim() : null;
 
   const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const dueMsRaw = t.due_date   ? parseInt(t.due_date, 10)   : null;
@@ -117,9 +119,25 @@ function parsePipelineTask(t) {
     status:           t.status ? (t.status.status || '').toLowerCase() : '',
     priority:         t.priority ? (t.priority.priority || null) : null,
     quoteHours,
+    jiraId,
     startMonth, startDay, startDaysInMonth,
     dueMonth,   dueDay,   dueDaysInMonth,
   };
+}
+
+// Convert a Jira date string ('YYYY-MM-DD') into the {month, day, daysInMonth}
+// shape the gantt bar rendering expects. kind: 'start' | 'due'.
+function jiraDateToBarFields(iso, kind) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const month = mo[d.getUTCMonth()] + ' ' + String(d.getUTCFullYear()).slice(-2);
+  const day   = d.getUTCDate();
+  const dim   = new Date(d.getUTCFullYear(), d.getUTCMonth() + 1, 0).getDate();
+  return kind === 'start'
+    ? { startMonth: month, startDay: day, startDaysInMonth: dim }
+    : { dueMonth: month, dueDay: day, dueDaysInMonth: dim };
 }
 
 function reapplyDateFlags(data) {
@@ -200,4 +218,4 @@ function applyProjectionsToYear(data, projections) {
   return data;
 }
 
-module.exports = { currentBillingMonth, effectiveHours, parseTask, parsePipelineTask, reapplyDateFlags, applyProjectionsToYear };
+module.exports = { currentBillingMonth, effectiveHours, parseTask, parsePipelineTask, jiraDateToBarFields, reapplyDateFlags, applyProjectionsToYear };

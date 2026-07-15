@@ -1,6 +1,7 @@
 'use strict';
 const { ALL_MONTHS, CLIENTS, currentYearStart } = require('./config');
-const { effectiveHours, currentBillingMonth, reapplyDateFlags, applyProjectionsToYear } = require('./helpers');
+const { effectiveHours, currentBillingMonth, jiraDateToBarFields, reapplyDateFlags, applyProjectionsToYear } = require('./helpers');
+const { fetchJiraIssue } = require('./jira');
 const { fetchMonthlyTemplates, buildPaygDiscoveryCache, fetchTasksForMonth, fetchPipelineTasks } = require('./clickup');
 const { getCache, setCache, deleteCache } = require('./cache');
 const { getProjections } = require('./projections');
@@ -186,9 +187,34 @@ async function buildMonthData(clientIndex, budget, month, paygCache, precomputed
   return { ok: true, month, isFuture, tasks };
 }
 
+// Once work moves to delivery, the timeline lives on the Jira epic (Start date /
+// Due date under Details) — the ClickUp task's own dates aren't maintained. For
+// in-flight and in-review tasks with a linked Jira issue, override the gantt bar
+// dates with Jira's. Degrades silently: if Jira is unconfigured or has no date,
+// the ClickUp dates (usually empty) are kept.
+const JIRA_DATE_STATUSES = new Set([
+  'in refinement', 'scheduled', 'in progress',   // In Flight
+  'in client approval', 'in live approval',       // In Review
+]);
+
+async function applyJiraDates(tasks) {
+  for (const t of tasks) {
+    if (!t.jiraId || !JIRA_DATE_STATUSES.has(t.status)) continue;
+    try {
+      const issue = await fetchJiraIssue(t.jiraId);
+      if (!issue) continue;
+      const start = jiraDateToBarFields(issue.startDate, 'start');
+      const due   = jiraDateToBarFields(issue.dueDate, 'due');
+      if (start) Object.assign(t, start);
+      if (due)   Object.assign(t, due);
+    } catch (e) { console.log(`Jira dates failed for ${t.jiraId}: ${e.message}`); }
+  }
+}
+
 async function buildPipelineData(clientIndex) {
   const client = CLIENTS[parseInt(clientIndex, 10)];
   const tasks  = await fetchPipelineTasks(teamId(), client.retainerTasksListId);
+  await applyJiraDates(tasks);
   const totalQuoted    = tasks.reduce((s, t) => s + (t.quoteHours || 0), 0);
   const scheduledTasks = tasks.filter(t => !!t.dueMonth).length;
   return { ok: true, tasks, totalTasks: tasks.length, scheduledTasks, totalQuoted: Math.round(totalQuoted) };

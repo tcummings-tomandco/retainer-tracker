@@ -221,6 +221,10 @@
   .grp-move { background:none; border:none; cursor:pointer; font-size:9px; line-height:1; color:var(--muted); padding:2px 5px; border-radius:3px; opacity:.55; }
   .gantt-group-hdr:hover .grp-move { opacity:1; }
   .grp-move:hover { background:#e2e8f0; color:var(--text); }
+  .row-hide-btn { background:none; border:none; cursor:pointer; font-size:9px; color:var(--muted); padding:1px 5px; border-radius:3px; opacity:0; }
+  tr:hover .row-hide-btn { opacity:.7; }
+  .row-hide-btn:hover { background:#e2e8f0; color:var(--text); opacity:1; }
+  .row-hide-btn.rhb-on { opacity:.9; color:#6d28d9; }
 
   .gantt-name-cell { background:var(--surface); border-bottom:1px solid var(--border); padding:10px 14px; position:sticky; left:0; z-index:1; vertical-align:top; }
   .gantt-name-inner{ display:flex; align-items:flex-start; gap:8px; }
@@ -386,6 +390,7 @@ var onHoldState     = []; // app-managed: array of task IDs parked in the On Hol
 var scopingReport   = null; // current Client Updates report for the selected client
 var scopingPollTimer = null; // interval handle while a draft is generating
 var scopingShowPreview = false; // toggles the client-facing email preview panel
+var showHiddenRows = false; // transient: reveal rows hidden via taskOrderState.hidden
 var roadmapYear = _CUR_YEAR; // which year the gantt columns show
 var roadmapRenderState = null; // { tasks, projections, months, nowMonth, groups } — kept for live row refresh
 var ganttDrag  = null; // active bar drag state: { taskId, handle:'left'|'right', months }
@@ -1082,21 +1087,27 @@ function renderAllocRows(taskId, isPreWork) {
       +'</div>';
   });
   html += '<button class="alloc-add" onclick="addAllocRow(\''+taskId+'\')">+ Add month</button>';
-  // For pre-work tasks: show timeline drag controls so user can set/clear the bar span
-  if (isPreWork) {
-    var hasBar = !!(s.barStart || s.barEnd);
-    var barInfo = hasBar
-      ? '<span style="font-size:9px;color:#6d28d9;margin-left:4px">'+(s.barStart||'?')+' → '+(s.barEnd||'?')+'</span>'
-      : '';
-    html += '<div style="margin-top:5px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">';
-    if (!hasBar) {
+  // Timeline bar controls — all groups. Pre-work falls back to the allocation
+  // span when cleared; in-flight/in-review revert to the Jira epic dates.
+  var hasBar = !!(s.barStart || s.barEnd);
+  var barInfo = hasBar
+    ? '<span style="font-size:9px;color:#6d28d9;margin-left:4px">'+(s.barStart||'?')+' → '+(s.barEnd||'?')+'</span>'
+    : '';
+  html += '<div style="margin-top:5px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">';
+  if (!hasBar) {
+    if (isPreWork) {
       html += '<button class="alloc-add" onclick="initBarSpan(\''+taskId+'\')" title="Set a draggable Gantt bar for this task">📅 Set timeline bar</button>';
     } else {
-      html += '<button class="alloc-rm" onclick="clearBarSpan(\''+taskId+'\')" title="Remove manual timeline bar — falls back to allocation span">× Clear bar</button>';
-      html += barInfo;
+      html += '<button class="alloc-add" onclick="initBarSpan(\''+taskId+'\')" title="Set a manual timeline bar — overrides the Jira dates until reset">📅 Set manual bar</button>';
     }
-    html += '</div>';
+  } else if (isPreWork) {
+    html += '<button class="alloc-rm" onclick="clearBarSpan(\''+taskId+'\')" title="Remove manual timeline bar — falls back to allocation span">× Clear bar</button>';
+    html += barInfo;
+  } else {
+    html += '<button class="alloc-rm" onclick="clearBarSpan(\''+taskId+'\')" title="Remove manual tweak — bar reverts to the Jira epic dates">× Reset to Jira dates</button>';
+    html += barInfo;
   }
+  html += '</div>';
   return html;
 }
 
@@ -1263,7 +1274,15 @@ function renderRoadmap(tasks, projections, yearViewData) {
     .filter(function(k){ return gMap[k]; });
   DEFAULT_GROUP_ORDER.forEach(function(k){ if (orderKeys.indexOf(k) < 0) orderKeys.push(k); });
   var groups = orderKeys.map(function(k){ return gMap[k]; });
-  tasks.forEach(function(t){
+  // Per-row hide/show (persisted in taskOrderState.hidden). Hidden rows are kept
+  // out of the groups but stay in roadmapRenderState.tasks so the "show hidden"
+  // toggle can restore them without a refetch. Read-only users never see them.
+  var hiddenIds     = (taskOrderState && taskOrderState.hidden) || [];
+  var hiddenPresent = tasks.filter(function(t){ return hiddenIds.indexOf(t.id) >= 0; }).length;
+  var rowTasks = (showHiddenRows && !isReadOnly)
+    ? tasks
+    : tasks.filter(function(t){ return hiddenIds.indexOf(t.id) < 0; });
+  rowTasks.forEach(function(t){
     var m = STATUS_META[t.status];
     (gMap[m ? m.group : 'active'] || gMap.active).tasks.push(t);
   });
@@ -1304,7 +1323,7 @@ function renderRoadmap(tasks, projections, yearViewData) {
       +'<div class="kpi-sub">'+k.sub+'</div></div>';
   }).join('');
 
-  roadmapRenderState = { tasks: tasks, projections: projections, months: months, nowMonth: months[0], yearData: yearViewData, groups: groups };
+  roadmapRenderState = { tasks: tasks, projections: projections, months: months, nowMonth: months[0], yearData: yearViewData, groups: groups, hiddenCount: hiddenPresent };
   document.getElementById('main').innerHTML = renderGantt(tasks, projections, months, groups);
   // Populate balance strip (element exists after innerHTML set above)
   var strip = document.getElementById('roadmap-balance-strip');
@@ -1368,7 +1387,13 @@ function renderGantt(tasks, projections, months, groups) {
       : 'padding:2px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted)';
     yearBtns += '<button onclick="switchRoadmapYear('+ry+')" style="'+btnStyle+'">'+ry+'</button>';
   }
-  var yearToggle = '<div style="display:flex;gap:6px;align-items:center">'+yearBtns+'</div>';
+  // "Show hidden" toggle — only when this client has hidden rows (admin only)
+  var hiddenCount  = roadmapRenderState ? (roadmapRenderState.hiddenCount || 0) : 0;
+  var hiddenToggle = (!isReadOnly && hiddenCount > 0)
+    ? '<button onclick="toggleShowHidden()" style="padding:2px 10px;border-radius:4px;font-size:11px;cursor:pointer;border:1px dashed var(--border);background:'+(showHiddenRows?'#f1f5f9':'transparent')+';color:var(--muted)" title="'+(showHiddenRows?'Hide the hidden rows again':'Reveal rows hidden from this roadmap')+'">'
+      +(showHiddenRows ? 'Done' : '👁 '+hiddenCount+' hidden')+'</button>'
+    : '';
+  var yearToggle = '<div style="display:flex;gap:6px;align-items:center">'+hiddenToggle+yearBtns+'</div>';
 
   return '<div class="roadmap-wrap">'
     +'<div id="roadmap-balance-strip" class="rbal-strip"></div>'
@@ -1383,29 +1408,30 @@ function renderGantt(tasks, projections, months, groups) {
 // Returns bar column span for pre-work tasks.
 // Priority: dragged barStart/barEnd → allocation-derived span → null (no bar).
 // Uses MONTHS_LIST-based clamping so bars that partially overlap the current view still render.
-function getPreWorkBarCols(taskId, months) {
+// Manually-dragged bar span (barStart/barEnd saved in projections) — any group.
+function getManualBarCols(taskId, months) {
   var s = taskAllocState[taskId];
-  if (!s) return null;
+  if (!s || (!s.barStart && !s.barEnd)) return null;
+  // Map into MONTHS_LIST absolute indices so we can clamp across year boundaries
+  var viewSi = MONTHS_LIST.indexOf(months[0]);
+  var viewEi = MONTHS_LIST.indexOf(months[months.length - 1]);
+  var allSi  = s.barStart ? MONTHS_LIST.indexOf(s.barStart) : viewSi;
+  var allEi  = s.barEnd   ? MONTHS_LIST.indexOf(s.barEnd)   : viewEi;
+  if (allSi < 0) allSi = viewSi;
+  if (allEi < 0) allEi = viewEi;
+  // Clamp to current view; reset fracs for any clamped side
+  var clSi = Math.max(allSi, viewSi);
+  var clEi = Math.min(allEi, viewEi);
+  if (clSi > clEi) return null; // completely outside current view
+  var sf = clSi > allSi ? 0 : (s.barStartFrac != null ? s.barStartFrac : 0);
+  var ef = clEi < allEi ? 1 : (s.barEndFrac   != null ? s.barEndFrac   : 1);
+  return { start: clSi - viewSi, end: clEi - viewSi + 1, startFrac: sf, dueFrac: ef };
+}
 
-  if (s.barStart || s.barEnd) {
-    // Map into MONTHS_LIST absolute indices so we can clamp across year boundaries
-    var viewSi = MONTHS_LIST.indexOf(months[0]);
-    var viewEi = MONTHS_LIST.indexOf(months[months.length - 1]);
-    var allSi  = s.barStart ? MONTHS_LIST.indexOf(s.barStart) : viewSi;
-    var allEi  = s.barEnd   ? MONTHS_LIST.indexOf(s.barEnd)   : viewEi;
-    if (allSi < 0) allSi = viewSi;
-    if (allEi < 0) allEi = viewEi;
-    // Clamp to current view; reset fracs for any clamped side
-    var clSi = Math.max(allSi, viewSi);
-    var clEi = Math.min(allEi, viewEi);
-    if (clSi > clEi) return null; // completely outside current view
-    var sf = clSi > allSi ? 0 : (s.barStartFrac != null ? s.barStartFrac : 0);
-    var ef = clEi < allEi ? 1 : (s.barEndFrac   != null ? s.barEndFrac   : 1);
-    return { start: clSi - viewSi, end: clEi - viewSi + 1, startFrac: sf, dueFrac: ef };
-  }
-
-  // Fallback: derive span from allocation months
-  if (!s.allocations || !s.allocations.length) return null;
+// Pre-work fallback: derive span from allocation months.
+function getAllocBarCols(taskId, months) {
+  var s = taskAllocState[taskId];
+  if (!s || !s.allocations || !s.allocations.length) return null;
   var indices = s.allocations
     .filter(function(a){ return a.month; })
     .map(function(a){ return months.indexOf(a.month); })
@@ -1414,6 +1440,16 @@ function getPreWorkBarCols(taskId, months) {
   var start = Math.min.apply(null, indices);
   var end   = Math.max.apply(null, indices) + 1; // exclusive
   return { start: start, end: end, startFrac: 0, dueFrac: 1 };
+}
+
+// Bar resolution for any task: a manually-dragged span always wins; pre-work then
+// falls back to allocation months; everything falls back to the task's dates
+// (Jira epic dates for in-flight/in-review, ClickUp dates otherwise).
+function getBarColsForTask(t, months) {
+  var isPre = (STATUS_META[t.status] || {}).group === 'pre';
+  return getManualBarCols(t.id, months)
+      || (isPre ? getAllocBarCols(t.id, months) : null)
+      || taskBarCols(t, months);
 }
 
 // ── Pre-work bar span helpers ──────────────────────────────────
@@ -1464,6 +1500,20 @@ function startBarDrag(e, taskId, handle) {
   e.stopPropagation();
   var months = roadmapRenderState ? roadmapRenderState.months : [];
   if (!months.length) return;
+  // No manual span yet (bar currently driven by Jira dates or allocations):
+  // seed the span from the rendered bar so the drag adjusts from where the bar
+  // already is, rather than snapping the other edge to the view boundary.
+  var s = getOrInitAllocState(taskId);
+  if (!s.barStart && !s.barEnd) {
+    var t  = roadmapRenderState.tasks.find(function(x){ return x.id === taskId; });
+    var bc = t ? getBarColsForTask(t, months) : null;
+    if (bc) {
+      s.barStart     = months[bc.start];
+      s.barStartFrac = bc.startFrac != null ? bc.startFrac : 0;
+      s.barEnd       = months[bc.end - 1];
+      s.barEndFrac   = bc.dueFrac != null ? bc.dueFrac : 1;
+    }
+  }
   ganttDrag = { taskId: taskId, handle: handle, months: months };
   document.body.classList.add('gantt-dragging');
   document.addEventListener('mousemove', onBarDragMove);
@@ -1538,6 +1588,31 @@ function moveGroup(e, key, dir) {
   renderRoadmap(roadmapRenderState.tasks, roadmapRenderState.projections, roadmapRenderState.yearData);
 }
 
+// ── Per-row hide/show ──────────────────────────────────────────
+function isRowHidden(taskId) {
+  return ((taskOrderState && taskOrderState.hidden) || []).indexOf(taskId) >= 0;
+}
+
+// Hide/unhide one row across the roadmap. Persisted per client on the same
+// task-order doc (hidden key). Visual only — projections still count in the balance.
+function toggleRowHidden(e, taskId) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  if (isReadOnly || !roadmapRenderState) return;
+  if (!taskOrderState) taskOrderState = {};
+  var h = (taskOrderState.hidden || []).slice();
+  var i = h.indexOf(taskId);
+  if (i >= 0) h.splice(i, 1); else h.push(taskId);
+  taskOrderState.hidden = h;
+  persistTaskOrder();
+  renderRoadmap(roadmapRenderState.tasks, roadmapRenderState.projections, roadmapRenderState.yearData);
+}
+
+function toggleShowHidden() {
+  if (!roadmapRenderState) return;
+  showHiddenRows = !showHiddenRows;
+  renderRoadmap(roadmapRenderState.tasks, roadmapRenderState.projections, roadmapRenderState.yearData);
+}
+
 function toggleGroup(key) {
   collapsedGroups[key] = !collapsedGroups[key];
   var body    = document.getElementById('gantt-group-'+key);
@@ -1606,8 +1681,13 @@ function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
     var isOpen  = !!openAllocTasks[t.id];
     var togLbl  = isOpen ? '▾ Hide' : allocToggleLabel(t.id);
     var togCls  = isOpen ? 'alloc-toggle' : allocToggleCls(t.id);
+    var rowIsHidden = isRowHidden(t.id);
+    var hideBtn = '<button class="row-hide-btn'+(rowIsHidden?' rhb-on':'')+'" onclick="toggleRowHidden(event,\''+t.id+'\')" title="'
+      +(rowIsHidden ? 'Show this row on the roadmap again' : 'Hide this row from the roadmap')+'">'
+      +(rowIsHidden ? '👁 show' : 'hide')+'</button>';
     metaRow   = '<div class="gantt-name-meta">'+priHtml+statusTag+confirmBadge
       +'<button id="alloc-toggle-'+tid+'" class="'+togCls+'" onclick="toggleAllocWrap(\''+t.id+'\')">'+togLbl+'</button>'
+      +hideBtn
       +'</div>';
     allocPanel = '<div id="alloc-wrap-'+tid+'" class="alloc-wrap" style="'+(isOpen?'':'display:none')+'">'+renderAllocRows(t.id, isPreWork)+'</div>';
   }
@@ -1627,12 +1707,9 @@ function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
     +'<div class="gantt-name-text">'+link+metaRow+'<div class="gantt-hrs">'+allocPanel+'</div></div>'
     +'</div></td>';
 
-  // Month cells with bar
-  // Pre-work: bar driven by barStart/barEnd drag span or allocated months; fallback to ClickUp dates.
-  // In Flight / In Review: always use ClickUp start/due dates.
-  var bc = isPreWork
-    ? (getPreWorkBarCols(t.id, months) || taskBarCols(t, months))
-    : taskBarCols(t, months);
+  // Month cells with bar — see getBarColsForTask: manual drag span wins for every
+  // group; pre-work falls back to allocations; in-flight/in-review to Jira dates.
+  var bc = getBarColsForTask(t, months);
   var monthTds = '';
 
   if (!bc) {
@@ -1645,9 +1722,10 @@ function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
     var barLbl  = t.name || '';
     var mlPct   = (bc.startFrac / span * 100).toFixed(1);
     var mrPct   = ((1 - bc.dueFrac) / span * 100).toFixed(1);
-    // Add drag handles to pre-work bars (admin only) so the user can set timeline by dragging
-    var leftHandle  = (isPreWork && !isReadOnly) ? '<div class="gantt-drag-handle gdh-left" onmousedown="startBarDrag(event,\''+t.id+'\',\'left\')" title="Drag to move start month">⋮</div>' : '';
-    var rightHandle = (isPreWork && !isReadOnly) ? '<div class="gantt-drag-handle gdh-right" onmousedown="startBarDrag(event,\''+t.id+'\',\'right\')" title="Drag to move end month">⋮</div>' : '';
+    // Drag handles on every bar (admin only) — pre-work sets the span outright;
+    // in-flight/in-review tweaks save a manual override on top of the Jira dates.
+    var leftHandle  = !isReadOnly ? '<div class="gantt-drag-handle gdh-left" onmousedown="startBarDrag(event,\''+t.id+'\',\'left\')" title="Drag to adjust start">⋮</div>' : '';
+    var rightHandle = !isReadOnly ? '<div class="gantt-drag-handle gdh-right" onmousedown="startBarDrag(event,\''+t.id+'\',\'right\')" title="Drag to adjust end">⋮</div>' : '';
     monthTds += '<td class="gantt-bar-cell'+(months[bc.start]===nowMonth?' gantt-now-col':'')+'" colspan="'+span+'">'
       +'<div class="gantt-bar" title="'+esc(barLbl)+'" style="background:'+meta.color+'dd;border:1.5px solid '+meta.color+';color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.25);margin-left:'+mlPct+'%;margin-right:'+mrPct+'%">'
       +leftHandle
@@ -1664,7 +1742,9 @@ function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
       +' ondrop="onRowDrop(event,\''+t.id+'\',\''+gk+'\')"'
       +' ondragleave="onRowDragLeave(event,\''+t.id+'\')"'
     : '';
-  return '<tr id="gantt-row-'+tid+'"'+rowDragAttrs+'>'+nameTd+monthTds+'</tr>';
+  // Hidden rows only reach the DOM in "show hidden" mode — render them dimmed
+  var hiddenStyle = (!isReadOnly && isRowHidden(t.id)) ? ' style="opacity:.45"' : '';
+  return '<tr id="gantt-row-'+tid+'"'+rowDragAttrs+hiddenStyle+'>'+nameTd+monthTds+'</tr>';
 }
 
 function refreshGanttRow(taskId) {

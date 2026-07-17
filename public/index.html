@@ -189,29 +189,32 @@
   .tl-chip-right { display:flex; gap:4px; align-items:center; flex-shrink:0; }
 
   /* ── Roadmap balance strip ─────────────────────────────── */
-  .rbal-strip      { display:flex; gap:7px; overflow-x:auto; padding-bottom:6px; margin-bottom:18px; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
-  .rbal-card       { flex:0 0 86px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:9px 8px; position:relative; overflow:hidden; }
-  .rbal-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
-  .rbal-card.pos::before  { background:var(--green); }
-  .rbal-card.warn::before { background:var(--amber); }
-  .rbal-card.neg::before  { background:var(--red); }
-  .rbal-card.current      { border-color:var(--amber); }
-  .rbal-label  { font-size:9px; color:var(--muted); font-weight:600; letter-spacing:.4px; margin-bottom:3px; }
-  .rbal-val    { font-size:15px; font-weight:800; line-height:1; margin-bottom:2px; }
+  /* Compact single-line balance ribbon — month + running hours + magnitude bar.
+     Projection/forecast detail lives in the tooltip so the gantt gets the space. */
+  .rbal-strip      { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; margin-bottom:10px; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+  .rbal-card       { flex:1 1 0; min-width:76px; background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:5px 8px 6px; cursor:default; }
+  .rbal-card.current       { border-color:var(--amber); box-shadow:0 0 0 1px var(--amber); }
+  .rbal-card.rbal-forecast { border-style:dashed; }
+  .rbal-top    { display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
+  .rbal-label  { font-size:9px; color:var(--muted); font-weight:600; letter-spacing:.4px; white-space:nowrap; }
+  .rbal-val    { font-size:12.5px; font-weight:800; line-height:1.2; white-space:nowrap; }
   .rbal-val.pos  { color:var(--green); }
   .rbal-val.warn { color:var(--amber); }
   .rbal-val.neg  { color:var(--red); }
-  .rbal-meta   { font-size:9px; color:var(--muted); min-height:12px; }
-  .rbal-bar-wrap { margin-top:5px; height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .rbal-bar-wrap { margin-top:3px; height:2px; background:var(--border); border-radius:2px; overflow:hidden; }
   .rbal-bar-fill { height:100%; border-radius:2px; }
+  /* Compact roadmap stats line (replaces the big KPI cards on this tab) */
+  .rm-stats { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rm-stats b { color:var(--text); font-weight:700; }
+  .rm-stats .rm-warn { color:var(--amber); font-weight:700; }
 
   /* ── Roadmap / Gantt ───────────────────────────────────── */
-  .roadmap-wrap  { padding:24px; }
+  .roadmap-wrap  { padding:12px 24px 20px; }
   /* The gantt owns its vertical scroll (max-height) so the Task/months header can
      stick to its top — a sticky header can't escape an overflow container, so
      page-level scrolling could never keep it visible. border-collapse must be
      `separate` for sticky headers: collapsed borders don't travel with stuck cells. */
-  .gantt-outer   { overflow:auto; max-height:calc(100vh - 140px); min-height:320px; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; border:1px solid var(--border); border-radius:var(--radius); }
+  .gantt-outer   { overflow:auto; max-height:calc(100vh - 160px); min-height:320px; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; border:1px solid var(--border); border-radius:var(--radius); }
   .gantt-table   { width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed; }
   .gantt-table col.gantt-name-col { width:390px; }
   .gantt-table col.gantt-mo-col   { min-width:72px; }
@@ -1229,13 +1232,15 @@ function renderRoadmapBalanceStrip(months) {
   return months.map(function(m) {
     var cls = balCls(m.closingBalance);
     var pct = Math.min(Math.abs(m.closingBalance||0) / maxAbs * 100, 100);
-    return '<div class="rbal-card '+cls+(m.isCurrent?' current':'')+'">'
-      +'<div class="rbal-label">'+m.month+'</div>'
-      +'<div class="rbal-val '+cls+'">'+(m.closingBalance!=null?fmt(m.closingBalance):'—')+'</div>'
-      +'<div class="rbal-meta">'+(m.isFuture&&m.projectedHours?m.projectedHours+'h proj.':'&nbsp;')+'</div>'
+    var tip = m.month + ' — closing balance ' + (m.closingBalance!=null?fmt(m.closingBalance):'—')
+      + (m.isCurrent ? ' (current month)' : (m.isFuture ? ' (forecast)' : ''))
+      + (m.isFuture && m.projectedHours ? ' · ' + m.projectedHours + 'h projected' : '');
+    return '<div class="rbal-card'+(m.isCurrent?' current':'')+(m.isFuture?' rbal-forecast':'')+'" title="'+esc(tip)+'">'
+      +'<div class="rbal-top">'
+      +'<span class="rbal-label">'+m.month+(m.isCurrent?' · now':'')+'</span>'
+      +'<span class="rbal-val '+cls+'">'+(m.closingBalance!=null?fmt(m.closingBalance):'—')+'</span>'
+      +'</div>'
       +'<div class="rbal-bar-wrap"><div class="rbal-bar-fill" style="width:'+pct+'%;background:'+bcRaw(m.closingBalance)+'"></div></div>'
-      +(m.isCurrent?'<div style="margin-top:4px"><span class="month-badge badge-now">Now</span></div>':'')
-      +(m.isFuture ?'<div style="margin-top:4px"><span class="month-badge badge-forecast">Forecast</span></div>':'')
       +'</div>';
   }).join('');
 }
@@ -1320,19 +1325,16 @@ function renderRoadmap(tasks, projections, yearViewData) {
     var p = projections[k];
     return s + (p.allocations ? p.allocations.reduce(function(sa,a){ return sa+(a.hours||0); },0) : 0);
   }, 0);
-  document.getElementById('kpiStrip').innerHTML = [
-    { label:'On Roadmap',         val:tasks.length,               sub:'active tasks',          col:'#64748b' },
-    { label:'Confirmed Quotes',   val:confirmedCount,             sub:'quote given in ClickUp', col:'#10b981' },
-    { label:'Allocated Tasks',    val:allocatedCount,             sub:'months assigned',       col:'#a78bfa' },
-    { label:'Allocated Hours',    val:Math.round(allocHrs)+'h',  sub:'across all months',     col:'#818cf8' },
-    { label:'Unallocated Quotes', val:confirmedCount - projIds.filter(function(k){ return projections[k].confirmedTotal != null; }).length, sub:'need months set', col:'#f59e0b' },
-  ].map(function(k){
-    return '<div class="kpi"><div class="kpi-label">'+k.label+'</div>'
-      +'<div class="kpi-value" style="color:'+k.col+'">'+k.val+'</div>'
-      +'<div class="kpi-sub">'+k.sub+'</div></div>';
-  }).join('');
+  // Roadmap keeps the big KPI strip empty — the gantt is the centrepiece. The
+  // same numbers render as a muted one-line stat row in the gantt header instead.
+  document.getElementById('kpiStrip').innerHTML = '';
+  var unallocated = confirmedCount - projIds.filter(function(k){ return projections[k].confirmedTotal != null; }).length;
+  var statsHtml = '<span class="rm-stats" title="Active tasks on roadmap · quotes confirmed in ClickUp · tasks with months allocated · hours allocated across months · confirmed quotes still needing months">'
+    +'<b>'+tasks.length+'</b> tasks · <b>'+confirmedCount+'</b> quoted · <b>'+allocatedCount+'</b> allocated · <b>'+Math.round(allocHrs)+'h</b> planned'
+    +(unallocated > 0 ? ' · <span class="rm-warn">'+unallocated+' need months</span>' : '')
+    +'</span>';
 
-  roadmapRenderState = { tasks: tasks, projections: projections, months: months, nowMonth: months[0], yearData: yearViewData, groups: groups, hiddenCount: hiddenPresent };
+  roadmapRenderState = { tasks: tasks, projections: projections, months: months, nowMonth: months[0], yearData: yearViewData, groups: groups, hiddenCount: hiddenPresent, statsHtml: statsHtml };
   document.getElementById('main').innerHTML = renderGantt(tasks, projections, months, groups);
   // Populate balance strip (element exists after innerHTML set above)
   var strip = document.getElementById('roadmap-balance-strip');
@@ -1404,10 +1406,14 @@ function renderGantt(tasks, projections, months, groups) {
     : '';
   var yearToggle = '<div style="display:flex;gap:6px;align-items:center">'+hiddenToggle+yearBtns+'</div>';
 
+  var statsHtml = roadmapRenderState ? (roadmapRenderState.statsHtml || '') : '';
   return '<div class="roadmap-wrap">'
     +'<div id="roadmap-balance-strip" class="rbal-strip"></div>'
-    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
-    +'<div class="section-title" style="margin:0">Roadmap · '+months[0]+' → '+months[months.length-1]+'</div>'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px">'
+    +'<div style="display:flex;align-items:baseline;gap:14px;min-width:0">'
+    +'<div class="section-title" style="margin:0;white-space:nowrap">Roadmap · '+months[0]+' → '+months[months.length-1]+'</div>'
+    +statsHtml
+    +'</div>'
     +yearToggle
     +'</div>'
     +'<div class="gantt-outer"><table class="gantt-table">'+colgroup+thead+allTbodies+'</table></div>'

@@ -9,16 +9,23 @@ function sleep(ms) {
 
 async function cuFetch(url) {
   const token   = process.env.CLICKUP_API_TOKEN;
-  const retries = 2;
+  const retries = 4;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const r    = await fetch(url, { headers: { Authorization: token } });
       const body = await r.text();
-      if (r.status !== 200) {
-        console.log(`ClickUp ${r.status}: ${body.substring(0, 300)}`);
-        return {};
+      if (r.status === 200) return JSON.parse(body);
+      // 429 (rate limit) and 5xx are transient — retry with backoff instead of
+      // returning {}: a silent empty here gets CACHED as "0 tasks this month".
+      if ((r.status === 429 || r.status >= 500) && attempt < retries) {
+        const ra     = parseInt(r.headers.get('retry-after') || '', 10);
+        const waitMs = Math.min(!isNaN(ra) && ra > 0 ? ra * 1000 : 2000 * attempt, 30000);
+        console.log(`ClickUp ${r.status} (attempt ${attempt}/${retries}) — retrying in ${waitMs}ms | ${url}`);
+        await sleep(waitMs);
+        continue;
       }
-      return JSON.parse(body);
+      console.log(`ClickUp ${r.status}: ${body.substring(0, 300)}`);
+      return {};
     } catch (e) {
       console.log(`cuFetch error (attempt ${attempt}/${retries}): ${e} | ${url}`);
       if (attempt < retries) await sleep(1500);

@@ -333,9 +333,13 @@ app.post('/api/refresh/year', requireAdmin, async (req, res) => {
     const { client = 0, budget, yearStart = currentYearStart() } = req.body;
     const idx     = parseInt(client, 10);
     const budgets = CLIENTS[idx].hasRetainerBudget ? ['Retail', 'Trade'] : [null];
-    const results = await Promise.all(budgets.map(b => forceRefreshYearView(idx, b, yearStart)));
+    // Rebuild budgets SEQUENTIALLY — two concurrent year builds fire enough
+    // ClickUp calls at once to trip the rate limit, and throttled responses used
+    // to cache months as empty (the "month suddenly shows 0 tasks" bug).
+    const results = [];
+    for (const b of budgets) results.push(await forceRefreshYearView(idx, b, yearStart));
     // Return the result for the requested budget — that's what the frontend
-    // renders directly.  Other budgets have been rebuilt in parallel silently.
+    // renders directly.  Other budgets have been rebuilt silently.
     const activeIdx = budget ? budgets.indexOf(budget) : 0;
     res.json(results[activeIdx >= 0 ? activeIdx : 0]);
   } catch (e) { res.json({ ok: false, error: e.message }); }

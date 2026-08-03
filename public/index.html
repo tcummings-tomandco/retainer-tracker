@@ -2435,10 +2435,14 @@ function forceRefresh() {
       run('getProjections', selIdx),
       run('getTaskOrder', selIdx),
       run('getOnHold', selIdx),
+      // Balance ribbon data must be force-rebuilt too — otherwise Refresh leaves
+      // it on the 4h cache and newly-tagged billing months don't pull through.
+      run('forceRefreshYearView', selIdx, budget, yearStart),
     ]).then(function(r){
       taskOrderState = r[2].order || {};
       onHoldState    = r[3].taskIds || [];
-      renderRoadmap(r[0].tasks || [], (r[1].projections || {}));
+      yearData       = r[4];
+      renderRoadmap(r[0].tasks || [], (r[1].projections || {}), r[4]);
     }).catch(function(e){ showError(e.message); });
   } else {
     yearData = null;

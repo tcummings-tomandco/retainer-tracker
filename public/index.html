@@ -222,6 +222,9 @@
   .gantt-th-name  { padding:9px 14px; background:#f8fafc; border-bottom:1px solid var(--border); font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; text-align:left; position:sticky; left:0; top:0; z-index:4; }
   .gantt-th-month { padding:9px 8px; background:#f8fafc; border-bottom:1px solid var(--border); border-left:1px solid var(--border); font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; text-align:center; white-space:nowrap; position:sticky; top:0; z-index:2; }
   .gantt-th-month.gantt-th-now { color:var(--amber); border-left-color:#f59e0b50; }
+  /* Previous months — muted shade so "what's just been" reads as past */
+  .gantt-th-month.gantt-past-col { background:#eef1f5; color:#94a3b8; }
+  .gantt-cell.gantt-past-col     { background:#f4f6f9; }
 
   /* No border-top: with border-collapse:separate it would double up against the
      previous row's border-bottom (the thead border covers the first group). */
@@ -1010,10 +1013,16 @@ function tagPill(tag, isForecast) {
 }
 
 // ── Roadmap helpers ────────────────────────────────────────────
+// The current calendar month as a roadmap month string, e.g. 'Sep 26'.
+function currentRoadmapMonth() {
+  var now = new Date();
+  var mo  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return mo[now.getMonth()] + ' ' + String(now.getFullYear()).slice(-2);
+}
+
 function roadmapMonths() {
   var now  = new Date();
-  var mo   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var curM = mo[now.getMonth()] + ' ' + String(now.getFullYear()).slice(-2);
+  var curM = currentRoadmapMonth();
   var yy   = String(roadmapYear).slice(2);
   // Start: current month if showing the current year, Jan if showing a future year
   var startM = (roadmapYear === now.getFullYear()) ? curM : ('Jan ' + yy);
@@ -1022,21 +1031,19 @@ function roadmapMonths() {
   var si = MONTHS_LIST.indexOf(startM);
   var ei = MONTHS_LIST.indexOf(endM);
   if (si < 0 || ei < 0 || si > ei) return MONTHS_LIST.slice(0, 12); // fallback
+  // Current year: also show the previous 2 months (shaded in the gantt) so
+  // recently-finished work stays visible. MONTHS_LIST is continuous across
+  // years, so this works over a year boundary (e.g. Jan shows Nov + Dec).
+  if (roadmapYear === now.getFullYear()) si = Math.max(0, si - 2);
   return MONTHS_LIST.slice(si, ei + 1);
 }
 
 function switchRoadmapYear(y) {
   roadmapYear = y;
   if (roadmapRenderState) {
-    var months = roadmapMonths();
-    roadmapRenderState.months = months;
-    roadmapRenderState.nowMonth = months[0];
-    document.getElementById('main').innerHTML = renderRoadmap(
-      roadmapRenderState.tasks, roadmapRenderState.projections, months, roadmapRenderState.nowMonth
-    );
-    setTimeout(function(){ attachScrollFix('.gantt-outer'); }, 0);
-    var strip = document.getElementById('roadmap-balance-strip');
-    if (strip && roadmapRenderState.yearData) strip.innerHTML = renderRoadmapBalanceStrip(roadmapRenderState.yearData.months || []);
+    // renderRoadmap recomputes months from roadmapYear, renders the gantt into
+    // #main itself, and repopulates the balance strip from yearData.
+    renderRoadmap(roadmapRenderState.tasks, roadmapRenderState.projections, roadmapRenderState.yearData);
   }
 }
 
@@ -1334,7 +1341,7 @@ function renderRoadmap(tasks, projections, yearViewData) {
     +(unallocated > 0 ? ' · <span class="rm-warn">'+unallocated+' need months</span>' : '')
     +'</span>';
 
-  roadmapRenderState = { tasks: tasks, projections: projections, months: months, nowMonth: months[0], yearData: yearViewData, groups: groups, hiddenCount: hiddenPresent, statsHtml: statsHtml };
+  roadmapRenderState = { tasks: tasks, projections: projections, months: months, nowMonth: currentRoadmapMonth(), yearData: yearViewData, groups: groups, hiddenCount: hiddenPresent, statsHtml: statsHtml };
   document.getElementById('main').innerHTML = renderGantt(tasks, projections, months, groups);
   // Populate balance strip (element exists after innerHTML set above)
   var strip = document.getElementById('roadmap-balance-strip');
@@ -1351,11 +1358,14 @@ function renderGantt(tasks, projections, months, groups) {
     + months.map(function(){ return '<col class="gantt-mo-col">'; }).join('')
     + '</colgroup>';
 
-  // Header
-  var now = roadmapMonths()[0];
+  // Header — months[0] is no longer "now" (the view includes the previous two
+  // months, shaded as past), so derive the current month from the clock.
+  var now    = currentRoadmapMonth();
+  var nowIdx = months.indexOf(now);
   var thead = '<thead><tr><th class="gantt-th-name">Task</th>'
-    + months.map(function(m){
-        return '<th class="gantt-th-month'+(m===now?' gantt-th-now':'')+'">'+m+'</th>';
+    + months.map(function(m, i){
+        var cls = m === now ? ' gantt-th-now' : (nowIdx >= 0 && i < nowIdx ? ' gantt-past-col' : '');
+        return '<th class="gantt-th-month'+cls+'">'+m+'</th>';
       }).join('')
     + '</tr></thead>';
 
@@ -1732,11 +1742,18 @@ function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
   var bc = getBarColsForTask(t, months);
   var monthTds = '';
 
+  // Past columns (before the current month) get a muted shade
+  var nowIdx = months.indexOf(nowMonth);
+  function cellCls(i) {
+    if (months[i] === nowMonth) return ' gantt-now-col';
+    return (nowIdx >= 0 && i < nowIdx) ? ' gantt-past-col' : '';
+  }
+
   if (!bc) {
-    months.forEach(function(m){ monthTds += '<td class="gantt-cell'+(m===nowMonth?' gantt-now-col':'')+'"></td>'; });
+    months.forEach(function(m, i){ monthTds += '<td class="gantt-cell'+cellCls(i)+'"></td>'; });
   } else {
     for (var i = 0; i < bc.start; i++) {
-      monthTds += '<td class="gantt-cell'+(months[i]===nowMonth?' gantt-now-col':'')+'"></td>';
+      monthTds += '<td class="gantt-cell'+cellCls(i)+'"></td>';
     }
     var span    = bc.end - bc.start;
     var barLbl  = t.name || '';
@@ -1753,7 +1770,7 @@ function ganttTaskRow(t, months, projections, nowMonth, groupKey) {
       +rightHandle
       +'</div></td>';
     for (var j = bc.end; j < months.length; j++) {
-      monthTds += '<td class="gantt-cell'+(months[j]===nowMonth?' gantt-now-col':'')+'"></td>';
+      monthTds += '<td class="gantt-cell'+cellCls(j)+'"></td>';
     }
   }
 
